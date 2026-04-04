@@ -123,62 +123,62 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| AUTH-01 | Pending | Pending |
-| AUTH-02 | Pending | Pending |
-| AUTH-03 | Pending | Pending |
-| AUTH-04 | Pending | Pending |
-| AUTH-05 | Pending | Pending |
-| AUTH-06 | Pending | Pending |
-| CAMP-01 | Pending | Pending |
-| CAMP-02 | Pending | Pending |
-| CAMP-03 | Pending | Pending |
-| CAMP-04 | Pending | Pending |
-| CAMP-05 | Pending | Pending |
-| RESP-01 | Pending | Pending |
-| RESP-02 | Pending | Pending |
-| RESP-03 | Pending | Pending |
-| RESP-04 | Pending | Pending |
-| RESP-05 | Pending | Pending |
-| CONF-01 | Pending | Pending |
-| CONF-02 | Pending | Pending |
-| CONF-03 | Pending | Pending |
-| CONF-04 | Pending | Pending |
-| CONF-05 | Pending | Pending |
-| CONF-06 | Pending | Pending |
-| WEBR-01 | Pending | Pending |
-| WEBR-02 | Pending | Pending |
-| WEBR-03 | Pending | Pending |
-| WEBR-04 | Pending | Pending |
-| WEBR-05 | Pending | Pending |
-| WEBR-06 | Pending | Pending |
-| WEBR-07 | Pending | Pending |
-| WEBR-08 | Pending | Pending |
-| WHAP-01 | Pending | Pending |
-| WHAP-02 | Pending | Pending |
-| WHAP-03 | Pending | Pending |
-| WHAP-04 | Pending | Pending |
-| WHAP-05 | Pending | Pending |
-| WHAP-06 | Pending | Pending |
-| WHAP-07 | Pending | Pending |
-| ANAL-01 | Pending | Pending |
-| ANAL-02 | Pending | Pending |
-| ANAL-03 | Pending | Pending |
-| ANAL-04 | Pending | Pending |
-| ANAL-05 | Pending | Pending |
-| ANAL-06 | Pending | Pending |
-| ANAL-07 | Pending | Pending |
-| ANAL-08 | Pending | Pending |
-| DASH-01 | Pending | Pending |
-| DASH-02 | Pending | Pending |
-| DASH-03 | Pending | Pending |
-| DASH-04 | Pending | Pending |
-| DASH-05 | Pending | Pending |
+| AUTH-01 | Phase 1 | Pending |
+| AUTH-02 | Phase 1 | Pending |
+| AUTH-03 | Phase 1 | Pending |
+| AUTH-04 | Phase 1 | Pending |
+| AUTH-05 | Phase 1 | Pending |
+| AUTH-06 | Phase 1 | Pending |
+| CAMP-01 | Phase 2 | Pending |
+| CAMP-02 | Phase 2 | Pending |
+| CAMP-03 | Phase 2 | Pending |
+| CAMP-04 | Phase 2 | Pending |
+| CAMP-05 | Phase 2 | Pending |
+| RESP-01 | Phase 2 | Pending |
+| RESP-02 | Phase 2 | Pending |
+| RESP-03 | Phase 2 | Pending |
+| RESP-04 | Phase 2 | Pending |
+| RESP-05 | Phase 2 | Pending |
+| CONF-01 | Phase 2 | Pending |
+| CONF-02 | Phase 2 | Pending |
+| CONF-03 | Phase 2 | Pending |
+| CONF-04 | Phase 2 | Pending |
+| CONF-05 | Phase 2 | Pending |
+| CONF-06 | Phase 2 | Pending |
+| WEBR-01 | Phase 3 | Pending |
+| WEBR-02 | Phase 3 | Pending |
+| WEBR-03 | Phase 3 | Pending |
+| WEBR-04 | Phase 3 | Pending |
+| WEBR-05 | Phase 3 | Pending |
+| WEBR-06 | Phase 3 | Pending |
+| WEBR-07 | Phase 3 | Pending |
+| WEBR-08 | Phase 3 | Pending |
+| WHAP-01 | Phase 5 | Pending |
+| WHAP-02 | Phase 5 | Pending |
+| WHAP-03 | Phase 5 | Pending |
+| WHAP-04 | Phase 5 | Pending |
+| WHAP-05 | Phase 5 | Pending |
+| WHAP-06 | Phase 5 | Pending |
+| WHAP-07 | Phase 5 | Pending |
+| ANAL-01 | Phase 4 | Pending |
+| ANAL-02 | Phase 4 | Pending |
+| ANAL-03 | Phase 4 | Pending |
+| ANAL-04 | Phase 4 | Pending |
+| ANAL-05 | Phase 4 | Pending |
+| ANAL-06 | Phase 4 | Pending |
+| ANAL-07 | Phase 4 | Pending |
+| ANAL-08 | Phase 4 | Pending |
+| DASH-01 | Phase 1 | Pending |
+| DASH-02 | Phase 1 | Pending |
+| DASH-03 | Phase 1 | Pending |
+| DASH-04 | Phase 1 | Pending |
+| DASH-05 | Phase 3 | Pending |
 
 **Coverage:**
 - v1 requirements: 49 total
-- Mapped to phases: 0
-- Unmapped: 49
+- Mapped to phases: 49
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-04-04*
-*Last updated: 2026-04-04 after initial definition*
+*Last updated: 2026-04-04 after roadmap creation*
