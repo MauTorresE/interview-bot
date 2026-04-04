@@ -9,9 +9,9 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Authentication
 
-- [ ] **AUTH-01**: User can sign up with email and password via Supabase Auth
-- [ ] **AUTH-02**: User can log in and stay logged in across browser sessions
-- [ ] **AUTH-03**: User can reset password via email link
+- [x] **AUTH-01**: User can sign up with email and password via Supabase Auth
+- [x] **AUTH-02**: User can log in and stay logged in across browser sessions
+- [x] **AUTH-03**: User can reset password via email link
 - [ ] **AUTH-04**: User can create an organization and invite team members by email
 - [x] **AUTH-05**: Organization members share access to all campaigns within their org
 - [x] **AUTH-06**: Row-level security ensures users only see data belonging to their organization
@@ -76,9 +76,9 @@ Requirements for initial release. Each maps to roadmap phases.
 ### Dashboard & UX
 
 - [x] **DASH-01**: Dark-first UI with electric violet accent, inspired by Factory.ai/Linear/Vercel aesthetic
-- [ ] **DASH-02**: Responsive design works on desktop and mobile browsers
+- [x] **DASH-02**: Responsive design works on desktop and mobile browsers
 - [ ] **DASH-03**: Landing page communicates value proposition and links to signup
-- [ ] **DASH-04**: Dashboard navigation: Campaigns, Reports, Settings
+- [x] **DASH-04**: Dashboard navigation: Campaigns, Reports, Settings
 - [ ] **DASH-05**: Interview room UI shows transcript, mic controls, elapsed timer, and text fallback input
 
 ## v2 Requirements
@@ -123,9 +123,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| AUTH-01 | Phase 1 | Pending |
-| AUTH-02 | Phase 1 | Pending |
-| AUTH-03 | Phase 1 | Pending |
+| AUTH-01 | Phase 1 | Complete |
+| AUTH-02 | Phase 1 | Complete |
+| AUTH-03 | Phase 1 | Complete |
 | AUTH-04 | Phase 1 | Pending |
 | AUTH-05 | Phase 1 | Complete |
 | AUTH-06 | Phase 1 | Complete |
@@ -169,9 +169,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 | ANAL-07 | Phase 4 | Pending |
 | ANAL-08 | Phase 4 | Pending |
 | DASH-01 | Phase 1 | Complete |
-| DASH-02 | Phase 1 | Pending |
+| DASH-02 | Phase 1 | Complete |
 | DASH-03 | Phase 1 | Pending |
-| DASH-04 | Phase 1 | Pending |
+| DASH-04 | Phase 1 | Complete |
 | DASH-05 | Phase 3 | Pending |
 
 **Coverage:**
