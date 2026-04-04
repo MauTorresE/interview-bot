@@ -13,8 +13,8 @@ Requirements for initial release. Each maps to roadmap phases.
 - [ ] **AUTH-02**: User can log in and stay logged in across browser sessions
 - [ ] **AUTH-03**: User can reset password via email link
 - [ ] **AUTH-04**: User can create an organization and invite team members by email
-- [ ] **AUTH-05**: Organization members share access to all campaigns within their org
-- [ ] **AUTH-06**: Row-level security ensures users only see data belonging to their organization
+- [x] **AUTH-05**: Organization members share access to all campaigns within their org
+- [x] **AUTH-06**: Row-level security ensures users only see data belonging to their organization
 
 ### Campaign Management
 
@@ -75,7 +75,7 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Dashboard & UX
 
-- [ ] **DASH-01**: Dark-first UI with electric violet accent, inspired by Factory.ai/Linear/Vercel aesthetic
+- [x] **DASH-01**: Dark-first UI with electric violet accent, inspired by Factory.ai/Linear/Vercel aesthetic
 - [ ] **DASH-02**: Responsive design works on desktop and mobile browsers
 - [ ] **DASH-03**: Landing page communicates value proposition and links to signup
 - [ ] **DASH-04**: Dashboard navigation: Campaigns, Reports, Settings
@@ -127,8 +127,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | AUTH-02 | Phase 1 | Pending |
 | AUTH-03 | Phase 1 | Pending |
 | AUTH-04 | Phase 1 | Pending |
-| AUTH-05 | Phase 1 | Pending |
-| AUTH-06 | Phase 1 | Pending |
+| AUTH-05 | Phase 1 | Complete |
+| AUTH-06 | Phase 1 | Complete |
 | CAMP-01 | Phase 2 | Pending |
 | CAMP-02 | Phase 2 | Pending |
 | CAMP-03 | Phase 2 | Pending |
@@ -168,7 +168,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | ANAL-06 | Phase 4 | Pending |
 | ANAL-07 | Phase 4 | Pending |
 | ANAL-08 | Phase 4 | Pending |
-| DASH-01 | Phase 1 | Pending |
+| DASH-01 | Phase 1 | Complete |
 | DASH-02 | Phase 1 | Pending |
 | DASH-03 | Phase 1 | Pending |
 | DASH-04 | Phase 1 | Pending |
