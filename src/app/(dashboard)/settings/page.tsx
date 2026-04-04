@@ -1,8 +1,9 @@
 import { createClient } from '@/lib/supabase/server'
+import { createClient as createAdminClient } from '@supabase/supabase-js'
 import { redirect } from 'next/navigation'
 import { Separator } from '@/components/ui/separator'
-import { Avatar, AvatarFallback } from '@/components/ui/avatar'
-import { Button } from '@/components/ui/button'
+import { MembersList, type Member } from '@/components/members-list'
+import { InviteMemberDialog } from '@/components/invite-member-dialog'
 
 export default async function SettingsPage() {
   const supabase = await createClient()
@@ -26,16 +27,62 @@ export default async function SettingsPage() {
         .single()
     : { data: null }
 
-  // Fetch org members
-  const { data: members } = activeOrgId
-    ? await supabase
-        .from('org_members')
-        .select('user_id, role, created_at')
-        .eq('organization_id', activeOrgId)
-    : { data: null }
+  // Fetch org members with user info via admin client
+  let members: Member[] = []
+  let isOwner = false
+
+  if (activeOrgId) {
+    const admin = createAdminClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!
+    )
+
+    const { data: memberRows } = await admin
+      .from('org_members')
+      .select('user_id, role, created_at')
+      .eq('org_id', activeOrgId)
+
+    if (memberRows) {
+      // Fetch user details for each member
+      const memberPromises = memberRows.map(async (m) => {
+        const {
+          data: { user: memberUser },
+        } = await admin.auth.admin.getUserById(m.user_id)
+        return {
+          user_id: m.user_id,
+          email: memberUser?.email ?? null,
+          name: (memberUser?.user_metadata?.name as string) ?? null,
+          role: m.role,
+        }
+      })
+      members = await Promise.all(memberPromises)
+
+      // Check if current user is owner
+      const currentMember = memberRows.find((m) => m.user_id === user.id)
+      isOwner = currentMember?.role === 'owner'
+    }
+  }
+
+  // Fetch pending invites
+  let pendingInvites: Array<{
+    id: string
+    email: string
+    expires_at: string
+  }> = []
+
+  if (activeOrgId) {
+    const { data: invites } = await supabase
+      .from('org_invites')
+      .select('id, email, expires_at')
+      .eq('org_id', activeOrgId)
+      .is('accepted_at', null)
+      .gt('expires_at', new Date().toISOString())
+
+    pendingInvites = invites ?? []
+  }
 
   return (
-    <div className="flex flex-1 flex-col p-8 md:p-8 p-4">
+    <div className="flex flex-1 flex-col p-4 md:p-8">
       <h1 className="text-xl font-semibold text-foreground">Configuracion</h1>
       <div className="mx-auto mt-8 w-full max-w-[640px]">
         {/* Organization section */}
@@ -72,38 +119,52 @@ export default async function SettingsPage() {
             <h2 className="text-base font-semibold text-foreground">
               Miembros
             </h2>
-            <Button variant="outline" size="sm" disabled>
-              Invitar miembro
-            </Button>
+            {activeOrgId && <InviteMemberDialog orgId={activeOrgId} />}
           </div>
           <Separator className="my-4" />
-          <div className="flex flex-col gap-3">
-            {members && members.length > 0 ? (
-              members.map((member) => (
+          {members.length > 0 ? (
+            <MembersList
+              members={members}
+              currentUserId={user.id}
+              isOwner={isOwner}
+            />
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              No hay miembros en esta organizacion.
+            </p>
+          )}
+        </section>
+
+        {/* Pending invites section */}
+        {pendingInvites.length > 0 && (
+          <section className="mt-8">
+            <h2 className="text-base font-semibold text-foreground">
+              Invitaciones pendientes
+            </h2>
+            <Separator className="my-4" />
+            <div className="flex flex-col gap-2">
+              {pendingInvites.map((invite) => (
                 <div
-                  key={member.user_id}
-                  className="flex items-center gap-3 rounded-lg p-2"
+                  key={invite.id}
+                  className="flex items-center justify-between rounded-lg p-2"
                 >
-                  <Avatar size="sm">
-                    <AvatarFallback className="text-xs">
-                      {member.user_id.charAt(0).toUpperCase()}
-                    </AvatarFallback>
-                  </Avatar>
-                  <div className="flex-1">
-                    <p className="text-sm text-foreground">{member.user_id}</p>
-                  </div>
-                  <span className="rounded-md bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
-                    {member.role}
+                  <span className="text-sm text-foreground">
+                    {invite.email}
+                  </span>
+                  <span className="text-xs text-muted-foreground">
+                    Expira{' '}
+                    {new Date(invite.expires_at).toLocaleDateString('es-MX', {
+                      month: 'short',
+                      day: 'numeric',
+                      hour: '2-digit',
+                      minute: '2-digit',
+                    })}
                   </span>
                 </div>
-              ))
-            ) : (
-              <p className="text-sm text-muted-foreground">
-                No hay miembros en esta organizacion.
-              </p>
-            )}
-          </div>
-        </section>
+              ))}
+            </div>
+          </section>
+        )}
       </div>
     </div>
   )
