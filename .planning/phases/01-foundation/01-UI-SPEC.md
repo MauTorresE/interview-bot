@@ -59,13 +59,13 @@ Exceptions:
 | Role | Size | Weight | Line Height | Font |
 |------|------|--------|-------------|------|
 | Body | 14px | 400 (regular) | 1.5 | Geist Sans |
-| Label | 12px | 500 (medium) | 1.4 | Geist Sans |
+| Label | 12px | 600 (semibold) | 1.4 | Geist Sans |
 | Heading | 20px | 600 (semibold) | 1.2 | Geist Sans |
 | Display | 28px | 600 (semibold) | 1.15 | Geist Sans |
 
 Additional typographic rules:
-- Nav items: 14px / 500 weight / 1.4 line-height
-- Sidebar section labels (e.g., "Workspace"): 11px / 600 weight / uppercase / `text-muted-foreground` / letter-spacing 0.05em
+- Nav items: 14px / 600 weight / 1.4 line-height
+- Sidebar section labels (e.g., "Workspace"): 12px / 600 weight / uppercase / `text-muted-foreground` / letter-spacing 0.05em
 - Monospace (code, IDs, technical values): Geist Mono at same size as surrounding text, 400 weight
 - Maximum body text line length: 65ch (enforced via `max-w-prose` or explicit `max-width`)
 
@@ -117,7 +117,9 @@ Accent is NOT used for: icons in nav (use secondary text), borders generally, se
 
 ## Component Inventory (Phase 1)
 
-Components needed for this phase, sourced from shadcn official registry:
+Components needed for this phase, sourced from shadcn official registry.
+
+**Initialization prerequisite:** The planner must include `npx shadcn init` (with the base-nova preset configuration from the Design System section above) as an explicit task before any component installation tasks. Components cannot be added until shadcn is initialized and `components.json` exists.
 
 | Component | Source | Usage in Phase 1 |
 |-----------|--------|-------------------|
@@ -143,20 +145,20 @@ Components needed for this phase, sourced from shadcn official registry:
 ### Sidebar (D-01)
 
 ```
-┌──────────────────────────────────────────────────────┐
-│ ┌────────┐ ┌──────────────────────────────────────┐  │
-│ │ Logo   │ │                                      │  │
-│ │        │ │         Content Area                 │  │
-│ ├────────┤ │                                      │  │
-│ │ Campaigns│ │  (adaptive width per D-02)          │  │
-│ │ Reports│ │                                      │  │
-│ │ Settings│ │                                      │  │
-│ │        │ │                                      │  │
-│ │        │ │                                      │  │
-│ ├────────┤ │                                      │  │
-│ │Org/User│ │                                      │  │
-│ └────────┘ └──────────────────────────────────────┘  │
-└──────────────────────────────────────────────────────┘
++---------------------------------------------------------+
+| +--------+ +--------------------------------------+     |
+| | Logo   | |                                      |     |
+| |        | |         Content Area                 |     |
+| +--------+ |                                      |     |
+| | Campaigns| |  (adaptive width per D-02)          |     |
+| | Reports| |                                      |     |
+| | Settings| |                                      |     |
+| |        | |                                      |     |
+| |        | |                                      |     |
+| +--------+ |                                      |     |
+| |Org/User| |                                      |     |
+| +--------+ +--------------------------------------+     |
++---------------------------------------------------------+
 ```
 
 - Expanded: 240px wide, logo + text labels + org switcher
@@ -176,7 +178,7 @@ Components needed for this phase, sourced from shadcn official registry:
 
 - Centered card layout, vertically and horizontally centered on viewport
 - Card max-width: 400px
-- Background: `--background` (#0a0a0a) — no split-screen, no imagery
+- Background: `--background` (#0a0a0a) -- no split-screen, no imagery
 - Card: `--card` surface with `--border` border, 24px padding, 12px border-radius
 - Logo centered above card, 48px margin-bottom to card
 
@@ -197,6 +199,9 @@ Components needed for this phase, sourced from shadcn official registry:
 | Empty state heading (Reports) | "Sin reportes aun" |
 | Empty state body (Reports) | "Los reportes apareceran aqui cuando completes tus primeras entrevistas." |
 | Empty state heading (Settings) | N/A (settings always has content) |
+| Tooltip: Campaigns nav | "Campanas" |
+| Tooltip: Reports nav | "Reportes" |
+| Tooltip: Settings nav | "Configuracion" |
 | Error: auth failed | "Credenciales incorrectas. Verifica tu email y contrasena e intenta de nuevo." |
 | Error: network | "Error de conexion. Verifica tu conexion a internet e intenta de nuevo." |
 | Error: invite failed | "No se pudo enviar la invitacion. Verifica el email e intenta de nuevo." |
