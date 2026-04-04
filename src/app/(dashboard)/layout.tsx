@@ -21,7 +21,7 @@ export default async function DashboardLayout({
   // Fetch user's org memberships
   const { data: memberships } = await supabase
     .from('org_members')
-    .select('organization_id, role, organizations(id, name)')
+    .select('org_id, role, organizations(id, name)')
     .eq('user_id', user.id)
 
   const orgs =

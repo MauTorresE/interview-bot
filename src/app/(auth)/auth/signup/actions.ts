@@ -53,7 +53,7 @@ export async function signup(formData: {
 
   // Add user as owner of the new org
   const { error: memberError } = await admin.from('org_members').insert({
-    organization_id: org.id,
+    org_id: org.id,
     user_id: userId,
     role: 'owner',
   })
