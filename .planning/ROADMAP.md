@@ -30,13 +30,13 @@ Decimal phases appear between their surrounding integers in numeric order.
   3. User can reset their password via email link
   4. Dashboard renders with dark-first UI, electric violet accent, and navigation between Campaigns/Reports/Settings sections
   5. A user in Org A cannot see any data belonging to Org B (RLS enforced at database level)
-**Plans**: TBD
+**Plans:** 3 plans
 **UI hint**: yes
 
 Plans:
-- [ ] 01-01: TBD
-- [ ] 01-02: TBD
-- [ ] 01-03: TBD
+- [ ] 01-01-PLAN.md — Scaffold Next.js project, shadcn/ui design system, Supabase clients, multi-tenant schema with RLS, Vitest setup
+- [ ] 01-02-PLAN.md — Auth flow (signup, login, password reset) and dashboard shell with Linear-style sidebar and navigation
+- [ ] 01-03-PLAN.md — Landing page, org management (invite members, create org, accept invites), schema push to Supabase
 
 ### Phase 2: Campaign & Script Builder
 **Goal**: Researchers can create campaigns, build structured interview scripts with branching logic, manage respondents, and generate invite links -- everything needed to set up an interview study
