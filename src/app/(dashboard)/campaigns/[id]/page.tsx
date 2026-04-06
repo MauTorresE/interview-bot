@@ -2,7 +2,7 @@ import { notFound } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
 import { CampaignTabs } from '@/components/campaigns/campaign-tabs'
-import { Button } from '@/components/ui/button'
+import { CampaignActionsMenu } from '@/components/campaigns/campaign-actions-menu'
 import {
   Breadcrumb,
   BreadcrumbList,
@@ -11,13 +11,6 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from '@/components/ui/breadcrumb'
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
-import { MoreHorizontal } from 'lucide-react'
 
 type PageProps = {
   params: Promise<{ id: string }>
@@ -66,14 +59,7 @@ export default async function CampaignDetailPage({ params }: PageProps) {
           </BreadcrumbList>
         </Breadcrumb>
 
-        <DropdownMenu>
-          <DropdownMenuTrigger render={<Button variant="ghost" size="icon" />}>
-            <MoreHorizontal className="size-4" />
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuItem>Editar detalles</DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+        <CampaignActionsMenu campaignId={campaign.id} campaignName={campaign.name} />
       </div>
 
       <CampaignTabs
