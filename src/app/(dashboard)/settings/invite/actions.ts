@@ -1,7 +1,7 @@
 'use server'
 
 import { createClient } from '@/lib/supabase/server'
-import { createClient as createAdminClient } from '@supabase/supabase-js'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { inviteSchema } from '@/lib/validations/auth'
 import { headers } from 'next/headers'
 
@@ -43,10 +43,7 @@ export async function sendInvite(
   }
 
   // Check if email is already a member
-  const admin = createAdminClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-  )
+  const admin = createAdminClient()
 
   // Check for existing pending invite
   const { data: existingInvite } = await admin

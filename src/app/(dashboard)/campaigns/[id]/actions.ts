@@ -1,7 +1,7 @@
 'use server'
 
 import { createClient } from '@/lib/supabase/server'
-import { createClient as createAdminClient } from '@supabase/supabase-js'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { researchBriefSchema, addRespondentSchema } from '@/lib/validations/campaign'
 import type { ResearchBriefInput, AddRespondentInput } from '@/lib/validations/campaign'
 import { revalidatePath } from 'next/cache'
@@ -19,10 +19,7 @@ async function getAuthContext() {
   const orgId = user.app_metadata?.org_id
   if (!orgId) return { error: 'Sin organizacion activa.' as const }
 
-  const admin = createAdminClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-  )
+  const admin = createAdminClient()
 
   return { user, orgId, admin }
 }

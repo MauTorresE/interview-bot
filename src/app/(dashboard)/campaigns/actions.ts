@@ -1,7 +1,7 @@
 'use server'
 
 import { createClient } from '@/lib/supabase/server'
-import { createClient as createAdminClient } from '@supabase/supabase-js'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { createCampaignSchema } from '@/lib/validations/campaign'
 import { revalidatePath } from 'next/cache'
 
@@ -29,10 +29,7 @@ export async function createCampaign(input: {
   const orgId = user.app_metadata?.org_id
   if (!orgId) return { error: 'Sin organizacion activa.' }
 
-  const admin = createAdminClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-  )
+  const admin = createAdminClient()
 
   const { data: campaign, error } = await admin
     .from('campaigns')
@@ -48,6 +45,8 @@ export async function createCampaign(input: {
     .single()
 
   if (error || !campaign) {
+    console.error('[createCampaign] Supabase error:', error)
+    console.error('[createCampaign] orgId:', orgId, 'parsed:', parsed.data)
     return { error: 'No se pudo crear la campana. Intenta de nuevo.' }
   }
 

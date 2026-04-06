@@ -1,7 +1,7 @@
 'use server'
 
 import { createClient } from '@/lib/supabase/server'
-import { createClient as createAdminClient } from '@supabase/supabase-js'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { createOrgSchema } from '@/lib/validations/auth'
 import { revalidatePath } from 'next/cache'
 
@@ -28,10 +28,7 @@ export async function createOrg(input: {
     return { error: 'No autenticado.' }
   }
 
-  const admin = createAdminClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-  )
+  const admin = createAdminClient()
 
   // Create organization
   const { data: org, error: orgError } = await admin
@@ -79,10 +76,7 @@ export async function switchOrg(orgId: string): Promise<ActionResult> {
   }
 
   // Verify user is a member of the target org (T-03-04)
-  const admin = createAdminClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-  )
+  const admin = createAdminClient()
 
   const { data: membership } = await admin
     .from('org_members')
@@ -123,10 +117,7 @@ export async function removeMember(
     return { error: 'Sin organizacion activa.' }
   }
 
-  const admin = createAdminClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-  )
+  const admin = createAdminClient()
 
   // Verify current user is owner
   const { data: currentMembership } = await admin

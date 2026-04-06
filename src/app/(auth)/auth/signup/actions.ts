@@ -1,7 +1,7 @@
 'use server'
 
 import { redirect } from 'next/navigation'
-import { createClient as createAdminClient } from '@supabase/supabase-js'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { signupSchema } from '@/lib/validations/auth'
 
 export async function signup(formData: {
@@ -17,10 +17,7 @@ export async function signup(formData: {
   const { name, email, password } = parsed.data
 
   // Use admin client to create user with auto-confirm (D-14: skip email verification)
-  const admin = createAdminClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-  )
+  const admin = createAdminClient()
 
   const { data: authData, error: authError } = await admin.auth.admin.createUser({
     email,

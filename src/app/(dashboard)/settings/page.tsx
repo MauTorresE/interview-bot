@@ -1,5 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
-import { createClient as createAdminClient } from '@supabase/supabase-js'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { redirect } from 'next/navigation'
 import { Separator } from '@/components/ui/separator'
 import { MembersList, type Member } from '@/components/members-list'
@@ -32,10 +32,7 @@ export default async function SettingsPage() {
   let isOwner = false
 
   if (activeOrgId) {
-    const admin = createAdminClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!
-    )
+    const admin = createAdminClient()
 
     const { data: memberRows } = await admin
       .from('org_members')
