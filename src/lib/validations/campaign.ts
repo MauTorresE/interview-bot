@@ -28,4 +28,5 @@ export const addRespondentSchema = z.object({
 
 export type CreateCampaignInput = z.infer<typeof createCampaignSchema>
 export type ResearchBriefInput = z.infer<typeof researchBriefSchema>
+export type ResearchBriefOutput = z.output<typeof researchBriefSchema>
 export type AddRespondentInput = z.infer<typeof addRespondentSchema>
