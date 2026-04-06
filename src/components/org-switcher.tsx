@@ -90,12 +90,12 @@ export function OrgSwitcher({ orgs, activeOrg, userEmail }: OrgSwitcherProps) {
               side="top"
               sideOffset={4}
             >
-              <DropdownMenuLabel>Organizaciones</DropdownMenuLabel>
               <DropdownMenuGroup>
+                <DropdownMenuLabel>Organizaciones</DropdownMenuLabel>
                 {orgs.map((org) => (
                   <DropdownMenuItem
                     key={org.id}
-                    onSelect={() => handleSwitchOrg(org.id)}
+                    onClick={() => handleSwitchOrg(org.id)}
                   >
                     <Avatar className="mr-2 size-5">
                       <AvatarFallback className="bg-primary/20 text-[10px] text-primary">
@@ -110,12 +110,12 @@ export function OrgSwitcher({ orgs, activeOrg, userEmail }: OrgSwitcherProps) {
                 ))}
               </DropdownMenuGroup>
               <DropdownMenuSeparator />
-              <DropdownMenuItem onSelect={() => setCreateOrgOpen(true)}>
+              <DropdownMenuItem onClick={() => setCreateOrgOpen(true)}>
                 <Plus className="mr-2 size-4" />
                 Crear organizacion
               </DropdownMenuItem>
               <DropdownMenuSeparator />
-              <DropdownMenuItem onSelect={handleSignOut}>
+              <DropdownMenuItem onClick={handleSignOut}>
                 <LogOut className="mr-2 size-4" />
                 Cerrar sesion
               </DropdownMenuItem>

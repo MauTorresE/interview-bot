@@ -1,7 +1,6 @@
 'use server'
 
 import { redirect } from 'next/navigation'
-import { createClient } from '@/lib/supabase/server'
 import { createClient as createAdminClient } from '@supabase/supabase-js'
 import { signupSchema } from '@/lib/validations/auth'
 
@@ -16,14 +15,18 @@ export async function signup(formData: {
   }
 
   const { name, email, password } = parsed.data
-  const supabase = await createClient()
 
-  const { data: authData, error: authError } = await supabase.auth.signUp({
+  // Use admin client to create user with auto-confirm (D-14: skip email verification)
+  const admin = createAdminClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
+  )
+
+  const { data: authData, error: authError } = await admin.auth.admin.createUser({
     email,
     password,
-    options: {
-      data: { name },
-    },
+    email_confirm: true,
+    user_metadata: { name },
   })
 
   if (authError || !authData.user) {
@@ -33,12 +36,6 @@ export async function signup(formData: {
   }
 
   const userId = authData.user.id
-
-  // Auto-create org using admin client with service_role key
-  const admin = createAdminClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-  )
 
   const { data: org, error: orgError } = await admin
     .from('organizations')
