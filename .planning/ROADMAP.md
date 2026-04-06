@@ -39,7 +39,7 @@ Plans:
 - [x] 01-03-PLAN.md — Landing page, org management (invite members, create org, accept invites), schema push to Supabase
 
 ### Phase 2: Campaign & Script Builder
-**Goal**: Researchers can create campaigns, build structured interview scripts with branching logic, manage respondents, and generate invite links -- everything needed to set up an interview study
+**Goal**: Researchers can create campaigns, build AI-driven research briefs with goals and critical paths, manage respondents with invite links, and see a consent screen -- everything needed to set up an interview study
 **Depends on**: Phase 1
 **Requirements**: CAMP-01, CAMP-02, CAMP-03, CAMP-04, CAMP-05, CONF-01, CONF-02, CONF-03, CONF-04, CONF-05, CONF-06, RESP-01, RESP-02, RESP-03, RESP-04, RESP-05
 **Success Criteria** (what must be TRUE):
@@ -48,13 +48,14 @@ Plans:
   3. User can view all campaigns on a dashboard with status indicators and progress counts
   4. User can add respondents, generate unique or reusable invite links, and send reminders
   5. Respondent sees a consent screen when opening an invite link before any interview begins
-**Plans**: TBD
+**Plans:** 4 plans
 **UI hint**: yes
 
 Plans:
-- [ ] 02-01: TBD
-- [ ] 02-02: TBD
-- [ ] 02-03: TBD
+- [ ] 02-01-PLAN.md — Database migration (campaigns, research_briefs, respondents with RLS), Zod schemas, constants, createCampaign server action, validation tests
+- [ ] 02-02-PLAN.md — Campaign list page (card grid, filtering, create dialog) and campaign detail shell (tabs + summary tab)
+- [ ] 02-03-PLAN.md — Research brief editor (4 sections + critical paths + preview) and respondents tab (table, add, delete, invite links, reminders)
+- [ ] 02-04-PLAN.md — Configuration tab (voice personas, interviewer style, reusable link) and public consent screen
 
 ### Phase 3: Voice Interview
 **Goal**: Respondents can click an invite link and have a natural, adaptive voice conversation with an AI interviewer -- with real-time transcription, time management, and full recording
@@ -115,8 +116,8 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Foundation | 0/3 | Not started | - |
-| 2. Campaign & Script Builder | 0/3 | Not started | - |
+| 1. Foundation | 3/3 | Complete | - |
+| 2. Campaign & Script Builder | 0/4 | Not started | - |
 | 3. Voice Interview | 0/3 | Not started | - |
 | 4. Analysis & Reports | 0/3 | Not started | - |
 | 5. WhatsApp Channel | 0/3 | Not started | - |
