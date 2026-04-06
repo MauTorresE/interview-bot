@@ -19,7 +19,7 @@ export async function createCampaign(input: {
 }): Promise<ActionResult> {
   const parsed = createCampaignSchema.safeParse(input)
   if (!parsed.success) {
-    return { error: 'Datos de campana invalidos.' }
+    return { error: 'Datos de campaña inválidos.' }
   }
 
   const supabase = await createClient()
@@ -27,7 +27,7 @@ export async function createCampaign(input: {
   if (!user) return { error: 'No autenticado.' }
 
   const orgId = user.app_metadata?.org_id
-  if (!orgId) return { error: 'Sin organizacion activa.' }
+  if (!orgId) return { error: 'Sin organización activa.' }
 
   const admin = createAdminClient()
 
@@ -47,7 +47,7 @@ export async function createCampaign(input: {
   if (error || !campaign) {
     console.error('[createCampaign] Supabase error:', error)
     console.error('[createCampaign] orgId:', orgId, 'parsed:', parsed.data)
-    return { error: 'No se pudo crear la campana. Intenta de nuevo.' }
+    return { error: 'No se pudo crear la campaña. Intenta de nuevo.' }
   }
 
   // Create blank research brief for the new campaign

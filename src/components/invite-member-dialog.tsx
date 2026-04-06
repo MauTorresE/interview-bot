@@ -41,18 +41,18 @@ export function InviteMemberDialog({ orgId }: InviteMemberDialogProps) {
 
     if (result.error) {
       toast.error(
-        'No se pudo enviar la invitacion. Verifica el email e intenta de nuevo.'
+        'No se pudo enviar la invitación. Verifica el email e intenta de nuevo.'
       )
       return
     }
 
     if (result.inviteLink) {
-      toast.success('Invitacion enviada', {
-        description: `Enlace de invitacion: ${result.inviteLink}`,
+      toast.success('Invitación enviada', {
+        description: `Enlace de invitación: ${result.inviteLink}`,
         duration: 10000,
       })
     } else {
-      toast.success('Invitacion enviada')
+      toast.success('Invitación enviada')
     }
 
     reset()
@@ -62,14 +62,14 @@ export function InviteMemberDialog({ orgId }: InviteMemberDialogProps) {
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger render={<Button variant="outline" size="sm" />}>
-        Enviar invitacion
+        Enviar invitación
       </DialogTrigger>
       <DialogContent className="sm:max-w-[400px]">
         <form onSubmit={handleSubmit(onSubmit)}>
           <DialogHeader>
             <DialogTitle>Invitar miembro</DialogTitle>
             <DialogDescription>
-              Envia una invitacion por email para unirse a tu organizacion.
+              Envía una invitación por email para unirse a tu organización.
             </DialogDescription>
           </DialogHeader>
           <div className="my-4">
@@ -96,7 +96,7 @@ export function InviteMemberDialog({ orgId }: InviteMemberDialogProps) {
                   Enviando...
                 </>
               ) : (
-                'Enviar invitacion'
+                'Enviar invitación'
               )}
             </Button>
           </DialogFooter>

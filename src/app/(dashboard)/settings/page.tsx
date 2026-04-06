@@ -80,19 +80,19 @@ export default async function SettingsPage() {
 
   return (
     <div className="flex flex-1 flex-col p-4 md:p-8">
-      <h1 className="text-xl font-semibold text-foreground">Configuracion</h1>
+      <h1 className="text-xl font-semibold text-foreground">Configuración</h1>
       <div className="mx-auto mt-8 w-full max-w-[640px]">
         {/* Organization section */}
         <section>
           <h2 className="text-base font-semibold text-foreground">
-            Organizacion
+            Organización
           </h2>
           <Separator className="my-4" />
           <div className="flex flex-col gap-2">
             <div className="flex items-center justify-between">
               <span className="text-sm text-muted-foreground">Nombre</span>
               <span className="text-sm text-foreground">
-                {org?.name ?? 'Sin organizacion'}
+                {org?.name ?? 'Sin organización'}
               </span>
             </div>
             <div className="flex items-center justify-between">
@@ -127,7 +127,7 @@ export default async function SettingsPage() {
             />
           ) : (
             <p className="text-sm text-muted-foreground">
-              No hay miembros en esta organizacion.
+              No hay miembros en esta organización.
             </p>
           )}
         </section>

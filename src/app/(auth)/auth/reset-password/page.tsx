@@ -48,14 +48,14 @@ export default function ResetPasswordPage() {
         {success ? (
           <div className="flex flex-col gap-4 text-center">
             <p className="text-sm text-foreground">
-              Te enviamos un enlace para restablecer tu contrasena. Revisa tu
+              Te enviamos un enlace para restablecer tu contraseña. Revisa tu
               bandeja de entrada.
             </p>
             <Link
               href="/auth/login"
               className="text-sm text-primary underline-offset-4 hover:underline"
             >
-              Volver a iniciar sesion
+              Volver a iniciar sesión
             </Link>
           </div>
         ) : (
@@ -85,7 +85,7 @@ export default function ResetPasswordPage() {
                 {isSubmitting && (
                   <Loader2 className="mr-2 size-4 animate-spin" />
                 )}
-                Restablecer contrasena
+                Restablecer contraseña
               </Button>
             </form>
 
@@ -94,7 +94,7 @@ export default function ResetPasswordPage() {
                 href="/auth/login"
                 className="text-primary underline-offset-4 hover:underline"
               >
-                Volver a iniciar sesion
+                Volver a iniciar sesión
               </Link>
             </p>
           </>

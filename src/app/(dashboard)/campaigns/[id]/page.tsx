@@ -49,7 +49,7 @@ export default async function CampaignDetailPage({ params }: PageProps) {
           <BreadcrumbList>
             <BreadcrumbItem>
               <BreadcrumbLink render={<Link href="/campaigns" />}>
-                Campanas
+                Campañas
               </BreadcrumbLink>
             </BreadcrumbItem>
             <BreadcrumbSeparator />

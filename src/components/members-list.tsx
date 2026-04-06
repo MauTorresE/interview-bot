@@ -123,8 +123,8 @@ export function MembersList({
           <DialogHeader>
             <DialogTitle>Eliminar miembro</DialogTitle>
             <DialogDescription>
-              Esta accion eliminara a {confirmRemove ? getDisplayName(confirmRemove) : ''}{' '}
-              de la organizacion. No podra acceder a las campanas.
+              Esta acción eliminará a {confirmRemove ? getDisplayName(confirmRemove) : ''}{' '}
+              de la organización. No podrá acceder a las campañas.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>

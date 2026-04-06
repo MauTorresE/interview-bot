@@ -14,7 +14,7 @@ import {
 
 const navItems = [
   {
-    title: 'Campanas',
+    title: 'Campañas',
     href: '/campaigns',
     icon: FolderOpen,
   },
@@ -24,7 +24,7 @@ const navItems = [
     icon: FileBarChart,
   },
   {
-    title: 'Configuracion',
+    title: 'Configuración',
     href: '/settings',
     icon: Settings,
   },

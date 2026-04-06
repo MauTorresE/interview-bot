@@ -20,9 +20,9 @@ export const RESPONDENT_STATUS_LABELS: Record<RespondentStatus, string> = {
 }
 
 export const INTERVIEWER_STYLES = [
-  { value: 'professional', label: 'Profesional', description: 'Tono formal y estructurado. Ideal para investigacion corporativa.' },
+  { value: 'professional', label: 'Profesional', description: 'Tono formal y estructurado. Ideal para investigación corporativa.' },
   { value: 'casual', label: 'Casual', description: 'Tono conversacional y relajado. Ideal para estudios de consumidor.' },
-  { value: 'empathetic', label: 'Empatico', description: 'Tono calido y comprensivo. Ideal para temas sensibles.' },
+  { value: 'empathetic', label: 'Empático', description: 'Tono cálido y comprensivo. Ideal para temas sensibles.' },
   { value: 'direct', label: 'Directo', description: 'Tono conciso y enfocado. Ideal para entrevistas cortas.' },
 ] as const
 
@@ -34,8 +34,8 @@ export const VOICE_PERSONAS = [
 ] as const
 
 export const LANGUAGES = [
-  { value: 'es-419', label: 'Espanol (Latinoamerica)' },
-  { value: 'es-ES', label: 'Espanol (Espana)' },
+  { value: 'es-419', label: 'Español (Latinoamérica)' },
+  { value: 'es-ES', label: 'Español (España)' },
 ] as const
 
 export const DURATION_OPTIONS = [

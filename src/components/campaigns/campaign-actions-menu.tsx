@@ -42,7 +42,7 @@ export function CampaignActionsMenu({ campaignId, campaignName }: CampaignAction
     if (result.error) {
       toast.error(result.error)
     } else {
-      toast.success('Campana archivada')
+      toast.success('Campaña archivada')
       router.push('/campaigns')
     }
     setArchiveOpen(false)
@@ -61,7 +61,7 @@ export function CampaignActionsMenu({ campaignId, campaignName }: CampaignAction
             className="text-destructive focus:text-destructive"
             onClick={() => setArchiveOpen(true)}
           >
-            Archivar campana
+            Archivar campaña
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
@@ -69,9 +69,9 @@ export function CampaignActionsMenu({ campaignId, campaignName }: CampaignAction
       <AlertDialog open={archiveOpen} onOpenChange={setArchiveOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Archivar campana</AlertDialogTitle>
+            <AlertDialogTitle>Archivar campaña</AlertDialogTitle>
             <AlertDialogDescription>
-              Esta accion archivara la campana &ldquo;{campaignName}&rdquo;. Las entrevistas activas no seran afectadas.
+              Esta acción archivará la campaña &ldquo;{campaignName}&rdquo;. Las entrevistas activas no serán afectadas.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

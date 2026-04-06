@@ -76,7 +76,7 @@ export function OrgSwitcher({ orgs, activeOrg, userEmail }: OrgSwitcherProps) {
               </Avatar>
               <div className="grid flex-1 text-left text-sm leading-tight">
                 <span className="truncate font-semibold">
-                  {activeOrg?.name ?? 'Sin organizacion'}
+                  {activeOrg?.name ?? 'Sin organización'}
                 </span>
                 <span className="truncate text-xs text-muted-foreground">
                   {userEmail}
@@ -112,12 +112,12 @@ export function OrgSwitcher({ orgs, activeOrg, userEmail }: OrgSwitcherProps) {
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={() => setCreateOrgOpen(true)}>
                 <Plus className="mr-2 size-4" />
-                Crear organizacion
+                Crear organización
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={handleSignOut}>
                 <LogOut className="mr-2 size-4" />
-                Cerrar sesion
+                Cerrar sesión
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>

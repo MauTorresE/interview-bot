@@ -70,11 +70,11 @@ export default function SignupPage() {
           </div>
 
           <div className="flex flex-col gap-2">
-            <Label htmlFor="password">Contrasena</Label>
+            <Label htmlFor="password">Contraseña</Label>
             <Input
               id="password"
               type="password"
-              placeholder="Minimo 8 caracteres"
+              placeholder="Mínimo 8 caracteres"
               disabled={isSubmitting}
               aria-invalid={!!errors.password}
               {...register('password')}
@@ -98,7 +98,7 @@ export default function SignupPage() {
             href="/auth/login"
             className="text-primary underline-offset-4 hover:underline"
           >
-            Iniciar sesion
+            Iniciar sesión
           </Link>
         </p>
       </CardContent>

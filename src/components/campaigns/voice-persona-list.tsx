@@ -24,7 +24,7 @@ export function VoicePersonaList({ selectedVoiceId, onSelect }: VoicePersonaList
     }
     // TODO: Add voice sample audio files to /public/voices/ in Phase 3
     setPlayingId(voiceId)
-    toast.info('Vista previa de voz no disponible aun')
+    toast.info('Vista previa de voz no disponible aún')
     setTimeout(() => setPlayingId(null), 2000)
   }
 

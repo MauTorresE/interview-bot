@@ -84,7 +84,7 @@ export function SummaryTab({ campaign, respondents }: SummaryTabProps) {
             </CardHeader>
             <CardContent>
               {recentRespondents.length === 0 ? (
-                <p className="text-sm text-muted-foreground">Sin actividad aun</p>
+                <p className="text-sm text-muted-foreground">Sin actividad aún</p>
               ) : (
                 <div className="space-y-3">
                   {recentRespondents.map((r) => (
@@ -114,7 +114,7 @@ export function SummaryTab({ campaign, respondents }: SummaryTabProps) {
         <div>
           <Card>
             <CardHeader>
-              <CardTitle className="text-sm">Info rapida</CardTitle>
+              <CardTitle className="text-sm">Info rápida</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
               <div>
@@ -122,7 +122,7 @@ export function SummaryTab({ campaign, respondents }: SummaryTabProps) {
                 <p className="text-sm">{languageLabel}</p>
               </div>
               <div>
-                <p className="text-xs font-semibold text-muted-foreground">Duracion</p>
+                <p className="text-xs font-semibold text-muted-foreground">Duración</p>
                 <p className="text-sm">{campaign.duration_target_minutes} min</p>
               </div>
               <div>

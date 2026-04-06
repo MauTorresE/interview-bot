@@ -1,4 +1,4 @@
-import { createClient as createAdminClient } from '@supabase/supabase-js'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { Card, CardContent } from '@/components/ui/card'
 import { ConsentForm } from './consent-form'
 
@@ -7,27 +7,28 @@ type PageProps = {
 }
 
 async function lookupToken(token: string) {
-  const admin = createAdminClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-  )
+  const admin = createAdminClient()
 
-  // Check respondents table for invite_token (T-02-11: only returns campaign name)
+  // Check respondents table for invite_token
   const { data: respondent } = await admin
     .from('respondents')
-    .select('id, status, campaign_id, campaigns(id, name, status)')
+    .select('id, status, campaign_id')
     .eq('invite_token', token)
     .single()
 
   if (respondent) {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const campaign = respondent.campaigns as any
+    const { data: campaign } = await admin
+      .from('campaigns')
+      .select('id, name, status')
+      .eq('id', respondent.campaign_id)
+      .single()
+
     return {
       valid: true as const,
       type: 'respondent' as const,
-      campaignName: campaign?.name as string ?? 'Entrevista',
+      campaignName: (campaign?.name as string) ?? 'Entrevista',
       status: respondent.status as string,
-      campaignStatus: campaign?.status as string,
+      campaignStatus: (campaign?.status as string) ?? null,
     }
   }
 
@@ -62,10 +63,10 @@ export default async function InterviewConsentPage({ params }: PageProps) {
       <Card className="w-full max-w-[560px]">
         <CardContent className="p-8 text-center">
           <h1 className="text-xl font-semibold text-foreground mb-3">
-            Enlace no valido
+            Enlace no válido
           </h1>
           <p className="text-sm text-muted-foreground">
-            Este enlace de entrevista no es valido o ha expirado.
+            Este enlace de entrevista no es válido o ha expirado.
           </p>
         </CardContent>
       </Card>
@@ -94,10 +95,10 @@ export default async function InterviewConsentPage({ params }: PageProps) {
       <Card className="w-full max-w-[560px]">
         <CardContent className="p-8 text-center">
           <h1 className="text-xl font-semibold text-foreground mb-3">
-            Enlace no valido
+            Enlace no válido
           </h1>
           <p className="text-sm text-muted-foreground">
-            Este enlace de entrevista no es valido o ha expirado.
+            Este enlace de entrevista no es válido o ha expirado.
           </p>
         </CardContent>
       </Card>

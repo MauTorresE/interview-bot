@@ -52,9 +52,9 @@ Plans:
 **UI hint**: yes
 
 Plans:
-- [ ] 02-01-PLAN.md — Database migration (campaigns, research_briefs, respondents with RLS), Zod schemas, constants, createCampaign server action, validation tests
-- [ ] 02-02-PLAN.md — Campaign list page (card grid, filtering, create dialog) and campaign detail shell (tabs + summary tab)
-- [ ] 02-03-PLAN.md — Research brief editor (4 sections + critical paths + preview) and respondents tab (table, add, delete, invite links, reminders)
+- [x] 02-01-PLAN.md — Database migration (campaigns, research_briefs, respondents with RLS), Zod schemas, constants, createCampaign server action, validation tests
+- [x] 02-02-PLAN.md — Campaign list page (card grid, filtering, create dialog) and campaign detail shell (tabs + summary tab)
+- [x] 02-03-PLAN.md — Research brief editor (4 sections + critical paths + preview) and respondents tab (table, add, delete, invite links, reminders)
 - [ ] 02-04-PLAN.md — Configuration tab (voice personas, interviewer style, reusable link) and public consent screen
 
 ### Phase 3: Voice Interview

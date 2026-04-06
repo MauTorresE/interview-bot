@@ -7,7 +7,7 @@ import { headers } from 'next/headers'
 export async function resetPassword(formData: { email: string }) {
   const parsed = resetPasswordSchema.safeParse(formData)
   if (!parsed.success) {
-    return { error: 'Email invalido.' }
+    return { error: 'Email inválido.' }
   }
 
   const { email } = parsed.data

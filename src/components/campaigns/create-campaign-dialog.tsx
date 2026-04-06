@@ -67,7 +67,7 @@ export function CreateCampaignDialog() {
       return
     }
 
-    toast.success('Campana creada')
+    toast.success('Campaña creada')
     reset()
     setOpen(false)
     if (result.data?.id) {
@@ -78,14 +78,14 @@ export function CreateCampaignDialog() {
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger render={<Button />}>
-        Crear campana
+        Crear campaña
       </DialogTrigger>
       <DialogContent className="sm:max-w-[480px]">
         <form onSubmit={handleSubmit(onSubmit)}>
           <DialogHeader>
-            <DialogTitle>Crear campana</DialogTitle>
+            <DialogTitle>Crear campaña</DialogTitle>
             <DialogDescription>
-              Configura los datos basicos de tu nueva campana de entrevistas.
+              Configura los datos básicos de tu nueva campaña de entrevistas.
             </DialogDescription>
           </DialogHeader>
 
@@ -94,7 +94,7 @@ export function CreateCampaignDialog() {
               <Label htmlFor="campaign-name">Nombre *</Label>
               <Input
                 id="campaign-name"
-                placeholder="Mi campana de investigacion"
+                placeholder="Mi campaña de investigación"
                 className="mt-2"
                 {...register('name')}
                 disabled={isSubmitting}
@@ -107,10 +107,10 @@ export function CreateCampaignDialog() {
             </div>
 
             <div>
-              <Label htmlFor="campaign-description">Descripcion</Label>
+              <Label htmlFor="campaign-description">Descripción</Label>
               <Textarea
                 id="campaign-description"
-                placeholder="Describe brevemente el objetivo de esta campana..."
+                placeholder="Describe brevemente el objetivo de esta campaña..."
                 rows={3}
                 className="mt-2"
                 {...register('description')}
@@ -140,7 +140,7 @@ export function CreateCampaignDialog() {
               </div>
 
               <div>
-                <Label>Duracion *</Label>
+                <Label>Duración *</Label>
                 <Select
                   value={durationValue}
                   onValueChange={(val) => setValue('duration_target_minutes', val as '10' | '15' | '30')}
@@ -177,7 +177,7 @@ export function CreateCampaignDialog() {
                   Creando...
                 </>
               ) : (
-                'Crear campana'
+                'Crear campaña'
               )}
             </Button>
           </DialogFooter>

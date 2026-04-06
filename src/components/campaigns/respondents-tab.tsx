@@ -120,7 +120,7 @@ export function RespondentsTab({
         <Users className="size-12 text-muted-foreground" />
         <div className="text-center">
           <h2 className="text-lg font-semibold text-foreground">
-            Sin participantes aun
+            Sin participantes aún
           </h2>
           <p className="mt-1 max-w-sm text-sm text-muted-foreground">
             Agrega participantes para comenzar a recopilar respuestas.
@@ -256,8 +256,8 @@ export function RespondentsTab({
           <AlertDialogHeader>
             <AlertDialogTitle>Eliminar participante</AlertDialogTitle>
             <AlertDialogDescription>
-              Esta accion eliminara a {deleteTarget?.name} de la campana. Si
-              tiene una entrevista en progreso, se cancelara.
+              Esta acción eliminará a {deleteTarget?.name} de la campaña. Si
+              tiene una entrevista en progreso, se cancelará.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

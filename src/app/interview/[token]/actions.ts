@@ -1,12 +1,9 @@
 'use server'
 
-import { createClient as createAdminClient } from '@supabase/supabase-js'
+import { createAdminClient } from '@/lib/supabase/admin'
 
 function getAdmin() {
-  return createAdminClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-  )
+  return createAdminClient()
 }
 
 export async function validateToken(token: string): Promise<{
@@ -18,15 +15,24 @@ export async function validateToken(token: string): Promise<{
   const admin = getAdmin()
 
   // Check respondents table first
-  const { data: respondent } = await admin
+  const { data: respondent, error: respError } = await admin
     .from('respondents')
-    .select('id, status, campaign_id, campaigns(id, name, status)')
+    .select('id, status, campaign_id')
     .eq('invite_token', token)
     .single()
 
+  if (respError) {
+    console.error('[validateToken] respondent lookup error:', respError)
+  }
+
   if (respondent) {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const campaign = respondent.campaigns as any
+    // Fetch campaign name separately (avoids PostgREST join issues across schemas)
+    const { data: campaign } = await admin
+      .from('campaigns')
+      .select('id, name, status')
+      .eq('id', respondent.campaign_id)
+      .single()
+
     return {
       valid: true,
       type: 'respondent',
@@ -35,12 +41,16 @@ export async function validateToken(token: string): Promise<{
   }
 
   // Check campaigns table for reusable invite token
-  const { data: campaign } = await admin
+  const { data: campaign, error: campError } = await admin
     .from('campaigns')
     .select('id, name, status')
     .eq('reusable_invite_token', token)
     .eq('reusable_invite_enabled', true)
     .single()
+
+  if (campError) {
+    console.error('[validateToken] campaign lookup error:', campError)
+  }
 
   if (campaign) {
     return {

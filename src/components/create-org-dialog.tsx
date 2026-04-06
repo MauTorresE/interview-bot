@@ -45,7 +45,7 @@ export function CreateOrgDialog({ open, onOpenChange }: CreateOrgDialogProps) {
       return
     }
 
-    toast.success('Organizacion creada')
+    toast.success('Organización creada')
     reset()
     onOpenChange(false)
     router.refresh()
@@ -56,9 +56,9 @@ export function CreateOrgDialog({ open, onOpenChange }: CreateOrgDialogProps) {
       <DialogContent className="sm:max-w-[400px]">
         <form onSubmit={handleSubmit(onSubmit)}>
           <DialogHeader>
-            <DialogTitle>Crear organizacion</DialogTitle>
+            <DialogTitle>Crear organización</DialogTitle>
             <DialogDescription>
-              Crea una nueva organizacion para gestionar tus campanas de
+              Crea una nueva organización para gestionar tus campañas de
               entrevistas.
             </DialogDescription>
           </DialogHeader>
@@ -67,7 +67,7 @@ export function CreateOrgDialog({ open, onOpenChange }: CreateOrgDialogProps) {
             <Input
               id="org-name"
               type="text"
-              placeholder="Mi organizacion"
+              placeholder="Mi organización"
               className="mt-2"
               {...register('name')}
               disabled={isSubmitting}
@@ -94,7 +94,7 @@ export function CreateOrgDialog({ open, onOpenChange }: CreateOrgDialogProps) {
                   Creando...
                 </>
               ) : (
-                'Crear organizacion'
+                'Crear organización'
               )}
             </Button>
           </DialogFooter>

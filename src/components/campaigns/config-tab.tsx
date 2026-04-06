@@ -105,7 +105,7 @@ export function ConfigTab({ campaign }: ConfigTabProps) {
     if (result.error) {
       toast.error(result.error)
     } else {
-      toast.success('Configuracion guardada')
+      toast.success('Configuración guardada')
       setIsDirty(false)
     }
   }
@@ -122,7 +122,7 @@ export function ConfigTab({ campaign }: ConfigTabProps) {
     <form onSubmit={handleSubmit(onSubmit)} className="mx-auto w-full max-w-2xl">
       {/* Top bar */}
       <div className="mb-6 flex items-center justify-between">
-        <h2 className="text-lg font-semibold text-foreground">Configuracion</h2>
+        <h2 className="text-lg font-semibold text-foreground">Configuración</h2>
         <Button type="submit" disabled={isSaving || !isFormDirty}>
           {isSaving ? (
             <>
@@ -152,7 +152,7 @@ export function ConfigTab({ campaign }: ConfigTabProps) {
           </div>
 
           <div className="flex flex-col gap-2">
-            <Label htmlFor="config-description">Descripcion</Label>
+            <Label htmlFor="config-description">Descripción</Label>
             <Textarea
               id="config-description"
               rows={3}
@@ -186,7 +186,7 @@ export function ConfigTab({ campaign }: ConfigTabProps) {
             </div>
 
             <div className="flex flex-col gap-2">
-              <Label>Duracion</Label>
+              <Label>Duración</Label>
               <Select
                 defaultValue={campaign.duration_target_minutes.toString()}
                 onValueChange={(value) => {

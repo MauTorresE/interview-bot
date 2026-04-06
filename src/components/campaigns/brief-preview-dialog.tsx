@@ -25,7 +25,7 @@ export function BriefPreviewDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-2xl max-h-[80vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Vista previa de la guia</DialogTitle>
+          <DialogTitle>Vista previa de la guía</DialogTitle>
         </DialogHeader>
 
         <div className="font-mono text-sm space-y-6 py-4">
@@ -33,7 +33,7 @@ export function BriefPreviewDialog({
           {brief.research_goals && (
             <div>
               <h3 className="font-semibold text-foreground mb-2">
-                Objetivos de investigacion
+                Objetivos de investigación
               </h3>
               <p className="text-muted-foreground whitespace-pre-wrap">
                 {brief.research_goals}
@@ -45,7 +45,7 @@ export function BriefPreviewDialog({
           {brief.critical_data_points && (
             <div>
               <h3 className="font-semibold text-foreground mb-2">
-                Datos criticos
+                Datos críticos
               </h3>
               <p className="text-muted-foreground whitespace-pre-wrap">
                 {brief.critical_data_points}
@@ -57,7 +57,7 @@ export function BriefPreviewDialog({
           {brief.critical_paths && brief.critical_paths.length > 0 && (
             <div>
               <h3 className="font-semibold text-foreground mb-2">
-                Caminos criticos
+                Caminos críticos
               </h3>
               <ul className="text-muted-foreground space-y-1">
                 {brief.critical_paths.map((path, index) => (

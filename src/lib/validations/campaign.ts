@@ -3,7 +3,7 @@ import { z } from 'zod'
 export const createCampaignSchema = z.object({
   name: z.string()
     .min(2, 'El nombre debe tener al menos 2 caracteres')
-    .max(100, 'El nombre no puede tener mas de 100 caracteres'),
+    .max(100, 'El nombre no puede tener más de 100 caracteres'),
   description: z.string().max(500).optional(),
   language: z.enum(['es-419', 'es-ES']).default('es-419'),
   duration_target_minutes: z.enum(['10', '15', '30']).default('15').transform(Number),
@@ -22,7 +22,7 @@ export const researchBriefSchema = z.object({
 
 export const addRespondentSchema = z.object({
   name: z.string().min(1, 'El nombre es requerido').max(100),
-  email: z.string().email('Email invalido'),
+  email: z.string().email('Email inválido'),
   notes: z.string().max(500).optional(),
 })
 

@@ -17,9 +17,9 @@ type ConsentFormProps = {
 }
 
 const CONSENT_ITEMS = [
-  'Acepto que esta entrevista sera grabada en audio para su posterior analisis.',
-  'Acepto que mis respuestas seran procesadas por inteligencia artificial para generar insights de investigacion.',
-  'Entiendo que mis datos seran tratados de forma confidencial y anonimizada en los reportes finales.',
+  'Acepto que esta entrevista será grabada en audio para su posterior análisis.',
+  'Acepto que mis respuestas serán procesadas por inteligencia artificial para generar insights de investigación.',
+  'Entiendo que mis datos serán tratados de forma confidencial y anonimizada en los reportes finales.',
 ] as const
 
 export function ConsentForm({ token, tokenType, campaignName }: ConsentFormProps) {
@@ -53,9 +53,9 @@ export function ConsentForm({ token, tokenType, campaignName }: ConsentFormProps
 
     if (result.error) {
       const messages: Record<string, string> = {
-        invalid: 'Este enlace de entrevista no es valido o ha expirado.',
+        invalid: 'Este enlace de entrevista no es válido o ha expirado.',
         already_used: 'Este enlace ya fue utilizado.',
-        campaign_archived: 'Esta campana ya no esta activa.',
+        campaign_archived: 'Esta campaña ya no está activa.',
       }
       toast.error(messages[result.error] ?? result.error)
     } else {
@@ -71,7 +71,7 @@ export function ConsentForm({ token, tokenType, campaignName }: ConsentFormProps
             Entrevista lista
           </h1>
           <p className="text-sm text-muted-foreground">
-            Tu consentimiento ha sido registrado. La entrevista comenzara pronto.
+            Tu consentimiento ha sido registrado. La entrevista comenzará pronto.
           </p>
         </CardContent>
       </Card>
@@ -152,7 +152,7 @@ export function ConsentForm({ token, tokenType, campaignName }: ConsentFormProps
 
         {/* Footer */}
         <p className="text-xs text-muted-foreground text-center mt-4">
-          Al continuar, aceptas los terminos de uso.
+          Al continuar, aceptas los términos de uso.
         </p>
       </CardContent>
     </Card>

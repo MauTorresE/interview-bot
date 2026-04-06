@@ -8,7 +8,7 @@ export default function LandingPage() {
           EntrevistaAI
         </h1>
         <p className="max-w-md text-lg text-foreground/90">
-          Entrevistas de investigacion con IA a escala
+          Entrevistas de investigación con IA a escala
         </p>
         <p className="max-w-lg text-sm text-muted-foreground">
           Realiza entrevistas profesionales 24/7, en cualquier zona horaria, a
@@ -25,7 +25,7 @@ export default function LandingPage() {
             href="/auth/login"
             className="text-sm text-muted-foreground transition-colors hover:text-foreground"
           >
-            Ya tienes cuenta? Iniciar sesion
+            Ya tienes cuenta? Iniciar sesión
           </Link>
         </div>
       </div>

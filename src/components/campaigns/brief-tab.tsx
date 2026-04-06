@@ -66,7 +66,7 @@ export function BriefTab({ campaignId, brief }: BriefTabProps) {
       toast.error(result.error)
       return
     }
-    toast.success('Guia guardada')
+    toast.success('Guía guardada')
     reset(data)
   }
 
@@ -84,10 +84,10 @@ export function BriefTab({ campaignId, brief }: BriefTabProps) {
         <FileText className="size-12 text-muted-foreground" />
         <div className="text-center">
           <h2 className="text-lg font-semibold text-foreground">
-            Guia sin completar
+            Guía sin completar
           </h2>
           <p className="mt-1 max-w-sm text-sm text-muted-foreground">
-            Define los objetivos y datos criticos que el AI debe obtener durante
+            Define los objetivos y datos críticos que el AI debe obtener durante
             las entrevistas.
           </p>
         </div>
@@ -95,7 +95,7 @@ export function BriefTab({ campaignId, brief }: BriefTabProps) {
           className="mt-2"
           onClick={() => firstTextareaRef.current?.focus()}
         >
-          Completar guia
+          Completar guía
         </Button>
       </div>
     )
@@ -107,7 +107,7 @@ export function BriefTab({ campaignId, brief }: BriefTabProps) {
         {/* Top bar */}
         <div className="flex items-center justify-between mb-6">
           <h2 className="text-lg font-semibold text-foreground">
-            Guia de investigacion
+            Guía de investigación
           </h2>
           <Button type="submit" disabled={isSubmitting}>
             {isSubmitting ? (
@@ -125,10 +125,10 @@ export function BriefTab({ campaignId, brief }: BriefTabProps) {
           <Card>
             <CardContent className="p-6">
               <Label className="text-sm font-semibold">
-                Objetivos de investigacion
+                Objetivos de investigación
               </Label>
               <p className="mt-1 text-xs text-muted-foreground">
-                Que quieres aprender de esta investigacion?
+                Qué quieres aprender de esta investigación?
               </p>
               <Textarea
                 className="mt-3"
@@ -150,9 +150,9 @@ export function BriefTab({ campaignId, brief }: BriefTabProps) {
           {/* Section 2: Datos criticos */}
           <Card>
             <CardContent className="p-6">
-              <Label className="text-sm font-semibold">Datos criticos</Label>
+              <Label className="text-sm font-semibold">Datos críticos</Label>
               <p className="mt-1 text-xs text-muted-foreground">
-                Informacion especifica que el AI debe obtener de cada
+                Información específica que el AI debe obtener de cada
                 participante.
               </p>
               <Textarea
@@ -169,10 +169,10 @@ export function BriefTab({ campaignId, brief }: BriefTabProps) {
               {/* Critical paths sub-section */}
               <div className="mt-6">
                 <Label className="text-sm font-semibold">
-                  Caminos criticos
+                  Caminos críticos
                 </Label>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  Si el participante menciona un tema, que debe explorar el AI?
+                  Si el participante menciona un tema, qué debe explorar el AI?
                 </p>
 
                 <div className="mt-3 space-y-3">
@@ -233,7 +233,7 @@ export function BriefTab({ campaignId, brief }: BriefTabProps) {
                 Contexto y antecedentes
               </Label>
               <p className="mt-1 text-xs text-muted-foreground">
-                Que debe saber el AI sobre el tema, la empresa o el proyecto?
+                Qué debe saber el AI sobre el tema, la empresa o el proyecto?
               </p>
               <Textarea
                 className="mt-3"
@@ -253,7 +253,7 @@ export function BriefTab({ campaignId, brief }: BriefTabProps) {
             <CardContent className="p-6">
               <Label className="text-sm font-semibold">Tono y enfoque</Label>
               <p className="mt-1 text-xs text-muted-foreground">
-                Como debe manejar la conversacion el AI?
+                Cómo debe manejar la conversación el AI?
               </p>
               <Textarea
                 className="mt-3"

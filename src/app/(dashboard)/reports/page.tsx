@@ -8,10 +8,10 @@ export default function ReportsPage() {
         <FileBarChart className="size-12 text-muted-foreground" />
         <div className="text-center">
           <h2 className="text-lg font-semibold text-foreground">
-            Sin reportes aun
+            Sin reportes aún
           </h2>
           <p className="mt-1 max-w-sm text-sm text-muted-foreground">
-            Los reportes apareceran aqui cuando completes tus primeras
+            Los reportes aparecerán aquí cuando completes tus primeras
             entrevistas.
           </p>
         </div>

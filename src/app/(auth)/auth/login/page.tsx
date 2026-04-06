@@ -56,18 +56,18 @@ export default function LoginPage() {
 
           <div className="flex flex-col gap-2">
             <div className="flex items-center justify-between">
-              <Label htmlFor="password">Contrasena</Label>
+              <Label htmlFor="password">Contraseña</Label>
               <Link
                 href="/auth/reset-password"
                 className="text-xs text-muted-foreground hover:text-primary"
               >
-                Olvidaste tu contrasena?
+                Olvidaste tu contraseña?
               </Link>
             </div>
             <Input
               id="password"
               type="password"
-              placeholder="Tu contrasena"
+              placeholder="Tu contraseña"
               disabled={isSubmitting}
               aria-invalid={!!errors.password}
               {...register('password')}
@@ -81,7 +81,7 @@ export default function LoginPage() {
 
           <Button type="submit" className="w-full" disabled={isSubmitting}>
             {isSubmitting && <Loader2 className="mr-2 size-4 animate-spin" />}
-            Iniciar sesion
+            Iniciar sesión
           </Button>
         </form>
 

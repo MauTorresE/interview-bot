@@ -17,7 +17,7 @@ async function getAuthContext() {
   if (!user) return { error: 'No autenticado.' as const }
 
   const orgId = user.app_metadata?.org_id
-  if (!orgId) return { error: 'Sin organizacion activa.' as const }
+  if (!orgId) return { error: 'Sin organización activa.' as const }
 
   const admin = createAdminClient()
 
@@ -30,7 +30,7 @@ export async function saveBrief(
 ): Promise<ActionResult> {
   const parsed = researchBriefSchema.safeParse(input)
   if (!parsed.success) {
-    return { error: 'Datos de guia invalidos.' }
+    return { error: 'Datos de guía inválidos.' }
   }
 
   const ctx = await getAuthContext()
@@ -49,7 +49,7 @@ export async function saveBrief(
     )
 
   if (error) {
-    return { error: 'No se pudo guardar la guia. Intenta de nuevo.' }
+    return { error: 'No se pudo guardar la guía. Intenta de nuevo.' }
   }
 
   revalidatePath(`/campaigns/${campaignId}`)
@@ -62,7 +62,7 @@ export async function addRespondent(
 ): Promise<ActionResult> {
   const parsed = addRespondentSchema.safeParse(input)
   if (!parsed.success) {
-    return { error: 'Datos del participante invalidos.' }
+    return { error: 'Datos del participante inválidos.' }
   }
 
   const ctx = await getAuthContext()
@@ -136,7 +136,7 @@ export async function archiveCampaign(
     .eq('org_id', orgId)
 
   if (error) {
-    return { error: 'No se pudo archivar la campana. Intenta de nuevo.' }
+    return { error: 'No se pudo archivar la campaña. Intenta de nuevo.' }
   }
 
   revalidatePath('/campaigns')
@@ -167,7 +167,7 @@ export async function updateCampaignConfig(
     .eq('org_id', orgId)
 
   if (error) {
-    return { error: 'No se pudo actualizar la configuracion. Intenta de nuevo.' }
+    return { error: 'No se pudo actualizar la configuración. Intenta de nuevo.' }
   }
 
   revalidatePath(`/campaigns/${campaignId}`)

@@ -15,7 +15,7 @@ export async function createOrg(input: {
 }): Promise<ActionResult> {
   const parsed = createOrgSchema.safeParse(input)
   if (!parsed.success) {
-    return { error: 'Nombre de organizacion invalido.' }
+    return { error: 'Nombre de organización inválido.' }
   }
 
   const supabase = await createClient()
@@ -38,7 +38,7 @@ export async function createOrg(input: {
     .single()
 
   if (orgError || !org) {
-    return { error: 'No se pudo crear la organizacion. Intenta de nuevo.' }
+    return { error: 'No se pudo crear la organización. Intenta de nuevo.' }
   }
 
   // Add user as owner
@@ -51,7 +51,7 @@ export async function createOrg(input: {
   if (memberError) {
     // Clean up the org if member insert fails
     await admin.from('organizations').delete().eq('id', org.id)
-    return { error: 'No se pudo crear la organizacion. Intenta de nuevo.' }
+    return { error: 'No se pudo crear la organización. Intenta de nuevo.' }
   }
 
   // Update user's app_metadata to point to new org
@@ -86,7 +86,7 @@ export async function switchOrg(orgId: string): Promise<ActionResult> {
     .single()
 
   if (!membership) {
-    return { error: 'No tienes acceso a esta organizacion.' }
+    return { error: 'No tienes acceso a esta organización.' }
   }
 
   // Update app_metadata with new org_id
@@ -114,7 +114,7 @@ export async function removeMember(
 
   const activeOrgId = user.app_metadata?.org_id
   if (!activeOrgId) {
-    return { error: 'Sin organizacion activa.' }
+    return { error: 'Sin organización activa.' }
   }
 
   const admin = createAdminClient()

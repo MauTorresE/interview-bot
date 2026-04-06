@@ -42,11 +42,11 @@ export default function UpdatePasswordPage() {
         )}
         <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col gap-6">
           <div className="flex flex-col gap-2">
-            <Label htmlFor="password">Nueva contrasena</Label>
+            <Label htmlFor="password">Nueva contraseña</Label>
             <Input
               id="password"
               type="password"
-              placeholder="Minimo 8 caracteres"
+              placeholder="Mínimo 8 caracteres"
               disabled={isSubmitting}
               aria-invalid={!!errors.password}
               {...register('password')}
@@ -59,11 +59,11 @@ export default function UpdatePasswordPage() {
           </div>
 
           <div className="flex flex-col gap-2">
-            <Label htmlFor="confirmPassword">Confirmar contrasena</Label>
+            <Label htmlFor="confirmPassword">Confirmar contraseña</Label>
             <Input
               id="confirmPassword"
               type="password"
-              placeholder="Repite tu contrasena"
+              placeholder="Repite tu contraseña"
               disabled={isSubmitting}
               aria-invalid={!!errors.confirmPassword}
               {...register('confirmPassword')}
@@ -77,7 +77,7 @@ export default function UpdatePasswordPage() {
 
           <Button type="submit" className="w-full" disabled={isSubmitting}>
             {isSubmitting && <Loader2 className="mr-2 size-4 animate-spin" />}
-            Actualizar contrasena
+            Actualizar contraseña
           </Button>
         </form>
       </CardContent>

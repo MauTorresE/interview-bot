@@ -11,7 +11,7 @@ export async function signup(formData: {
 }) {
   const parsed = signupSchema.safeParse(formData)
   if (!parsed.success) {
-    return { error: 'Datos invalidos. Verifica los campos e intenta de nuevo.' }
+    return { error: 'Datos inválidos. Verifica los campos e intenta de nuevo.' }
   }
 
   const { name, email, password } = parsed.data
@@ -42,7 +42,7 @@ export async function signup(formData: {
 
   if (orgError || !org) {
     // User created but org failed -- still redirect, they can create org later
-    return { error: 'Cuenta creada pero no se pudo crear la organizacion.' }
+    return { error: 'Cuenta creada pero no se pudo crear la organización.' }
   }
 
   // Add user as owner of the new org
@@ -53,7 +53,7 @@ export async function signup(formData: {
   })
 
   if (memberError) {
-    return { error: 'Cuenta creada pero no se pudo asignar a la organizacion.' }
+    return { error: 'Cuenta creada pero no se pudo asignar a la organización.' }
   }
 
   // Set org_id in user's app_metadata for RLS policies

@@ -14,7 +14,7 @@ export async function updatePassword(formData: {
     return {
       error:
         fieldErrors[0]?.message ??
-        'Datos invalidos. Verifica los campos e intenta de nuevo.',
+        'Datos inválidos. Verifica los campos e intenta de nuevo.',
     }
   }
 
@@ -24,7 +24,7 @@ export async function updatePassword(formData: {
   const { error } = await supabase.auth.updateUser({ password })
 
   if (error) {
-    return { error: 'No se pudo actualizar la contrasena. Intenta de nuevo.' }
+    return { error: 'No se pudo actualizar la contraseña. Intenta de nuevo.' }
   }
 
   redirect('/campaigns')

@@ -48,11 +48,11 @@ export function CampaignTabs({
     <Tabs defaultValue="resumen" className="w-full">
       <TabsList>
         <TabsTrigger value="resumen">Resumen</TabsTrigger>
-        <TabsTrigger value="guia">Guia de investigacion</TabsTrigger>
+        <TabsTrigger value="guia">Guía de investigación</TabsTrigger>
         <TabsTrigger value="participantes">
           Participantes{respondents.length > 0 ? ` (${respondents.length})` : ''}
         </TabsTrigger>
-        <TabsTrigger value="configuracion">Configuracion</TabsTrigger>
+        <TabsTrigger value="configuracion">Configuración</TabsTrigger>
       </TabsList>
 
       <div className="pt-8">
