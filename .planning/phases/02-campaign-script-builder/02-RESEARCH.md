@@ -533,22 +533,22 @@ export const VOICE_PERSONAS = [
 | A5 | Email sending for RESP-04 will be stubbed (no actual email service) | Common Pitfalls | MEDIUM -- user may expect real reminders; needs explicit communication |
 | A6 | The admin client pattern (service role key) is appropriate for public consent page token lookups | Architecture Patterns | LOW -- this is the established pattern for unauthenticated operations |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **Email infrastructure for reminders (RESP-04)**
+1. **Email infrastructure for reminders (RESP-04)** — RESOLVED
    - What we know: No email service is configured. The stack mentions Supabase Edge Functions for background tasks.
    - What's unclear: Whether to stub reminders entirely or set up a basic email provider now.
-   - Recommendation: Stub the action, log the intent, show toast. Email integration is a cross-cutting concern better addressed as a dedicated task or in a later phase.
+   - Recommendation: Stub the action, log the intent, show toast. Email integration is a cross-cutting concern better addressed as a dedicated task or in a later phase. **Resolution:** Implemented as stubbed server action in Plan 03 (sendReminder logs intent, returns success). Email service deferred to future phase.
 
-2. **Voice persona audio samples**
+2. **Voice persona audio samples** — RESOLVED
    - What we know: UI-SPEC specifies play buttons for voice preview. Voice personas are Voxtral and ElevenLabs.
    - What's unclear: Where to host sample audio clips for the voice preview in the config tab.
-   - Recommendation: Use static audio files in `/public/voices/` for Phase 2. These can be short 3-5 second clips. Alternatively, stub with a placeholder and add real samples when the voice pipeline is integrated in Phase 3.
+   - Recommendation: Use static audio files in `/public/voices/` for Phase 2. These can be short 3-5 second clips. Alternatively, stub with a placeholder and add real samples when the voice pipeline is integrated in Phase 3. **Resolution:** Play button stubbed with toast "Vista previa de voz no disponible aun" in Plan 04. Real audio samples deferred to Phase 3 voice pipeline integration.
 
-3. **Supabase type generation**
+3. **Supabase type generation** — RESOLVED
    - What we know: No Supabase type generation is set up. Supabase CLI is available via `npx supabase` (v2.84.10).
    - What's unclear: Whether to set up `supabase gen types` now or continue without it.
-   - Recommendation: Set up type generation as a Wave 0 task. Having typed database responses prevents bugs in the many CRUD operations this phase creates.
+   - Recommendation: Set up type generation as a Wave 0 task. Having typed database responses prevents bugs in the many CRUD operations this phase creates. **Resolution:** Deferred — inline types used for Phase 2 CRUD operations. Type generation can be set up as a standalone task when schema stabilizes.
 
 ## Environment Availability
 
