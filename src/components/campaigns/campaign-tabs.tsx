@@ -4,6 +4,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { SummaryTab } from '@/components/campaigns/summary-tab'
 import { BriefTab } from './brief-tab'
 import { RespondentsTab } from './respondents-tab'
+import { ConfigTab } from './config-tab'
 import type { ResearchBriefOutput } from '@/lib/validations/campaign'
 
 type Respondent = {
@@ -24,6 +25,7 @@ type Campaign = {
   status: string
   language: string
   duration_target_minutes: number
+  voice_provider: string | null
   voice_id: string | null
   interviewer_style: string | null
   reusable_invite_token: string | null
@@ -72,9 +74,7 @@ export function CampaignTabs({
         </TabsContent>
 
         <TabsContent value="configuracion">
-          <div className="text-sm text-muted-foreground">
-            Configuracion de la campana (Plan 04)
-          </div>
+          <ConfigTab campaign={campaign} />
         </TabsContent>
       </div>
     </Tabs>
