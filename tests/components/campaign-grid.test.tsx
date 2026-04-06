@@ -45,12 +45,12 @@ describe('CampaignGrid', () => {
   })
 
   it('shows all campaigns when no filter applied', () => {
-    const campaigns = [
+    const campaigns: { status: string; name: string }[] = [
       { status: 'draft', name: 'A' },
       { status: 'active', name: 'B' },
     ]
-    const statusFilter = ''
-    const searchQuery = ''
+    const statusFilter: string = ''
+    const searchQuery: string = ''
     const filtered = campaigns.filter((c) => {
       if (statusFilter && c.status !== statusFilter) return false
       if (searchQuery && !c.name.toLowerCase().includes(searchQuery.toLowerCase())) return false
