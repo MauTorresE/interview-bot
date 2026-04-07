@@ -5,7 +5,7 @@
 
 **Date:** 2026-04-06
 **Phase:** 03-voice-interview
-**Areas discussed:** Interview room UX, Agent architecture, Connection & session flow, Recording & transcript storage
+**Areas discussed:** Interview room UX, Agent architecture, Connection & session flow, Recording & transcript storage, Time management, Scaling & concurrency, Token security, Audio recording pipeline, Frontend SDK, Researcher dashboard
 
 ---
 
@@ -171,19 +171,50 @@
 
 ---
 
+## Production Gaps (follow-up discussion)
+
+User asked "do you think we've covered everything for production?" — Claude identified 6 gaps.
+User asked for Claude's recommendations. All accepted as locked decisions.
+
+### Time Management
+**Claude's recommendation (accepted):** Elapsed time injected into system prompt context on every turn. Two hard guardrails: 80% → prompt nudge, 95% → forced transition to closing.
+**Notes:** User confirmed. Prevents interviews from running over.
+
+### Scaling & Concurrency
+**Claude's recommendation (accepted):** Single Railway process, LiveKit Agents handles dispatch. Must support minimum 5 concurrent interviews for MVP.
+**Notes:** User specified the 5-concurrent requirement explicitly.
+
+### Token Security & Session Creation
+**Claude's recommendation (accepted):** 4-step atomic flow in `/api/livekit/token`: verify token → verify consent → prevent duplicates → create interview row + room.
+**Notes:** None
+
+### Audio Recording Pipeline
+**Claude's recommendation (accepted):** Start Egress on room creation, stop on interview end. Transcript is the safety net — if Egress fails, interview continues.
+**Notes:** None
+
+### Frontend SDK
+**Claude's recommendation (accepted):** `@livekit/components-react` with Tailwind/shadcn styling.
+**Notes:** None
+
+### Researcher Dashboard Integration
+**Claude's recommendation (accepted):** Enhance Respondents tab with interview status + transcript link. New transcript viewer page at `/campaigns/[id]/interviews/[interviewId]`.
+**Notes:** None
+
+---
+
 ## Claude's Discretion
 
 - Mic permission handling UX
 - Mobile responsiveness of interview room
 - Loading states and connection progress indicators
 - Visual feedback during AI speaking vs listening
-- Time management warnings
 - Off-topic response handling
 - Silence detection and re-engagement
 - Error states
 - Interview room header design
 - Function tool parameter schemas
-- LiveKit Egress configuration details
+- Egress format and configuration details
+- Transcript viewer page layout and styling
 
 ## Deferred Ideas
 

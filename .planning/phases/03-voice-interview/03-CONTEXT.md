@@ -25,6 +25,30 @@ Live AI voice interviews via WebRTC (LiveKit). Respondents click an invite link,
 - **D-07:** Voice persona selection via provider switch at agent init — reads voice persona from campaign config. Voxtral persona → VoxtralTTS. ElevenLabs persona → livekit-plugins-elevenlabs. Decision happens once at session start.
 - **D-08:** Generic insight function tools — replace prototype's domain-specific tools with generic ones: note_theme, note_quote, note_sentiment, transition_phase, end_interview. Works for any research domain.
 
+### Time Management
+- **D-15:** Elapsed time injected into system prompt context on every turn — same pattern as prototype's `state_context`. AI sees `"Llevas 12 de 15 minutos"` and naturally paces the conversation.
+- **D-16:** Two hard guardrails enforced in code (not relying on AI): at **80% of duration target** → prompt nudge injected ("begin wrapping up current topic"); at **95% of duration target** → agent forces `transition_phase("closing")` automatically.
+
+### Scaling & Concurrency
+- **D-17:** Single Railway process, LiveKit Agents framework handles dispatch — one `cli.run_app()` process registers as a worker pool. LiveKit Cloud dispatches a new agent instance per room. Must support **minimum 5 concurrent interviews** for MVP. Each interview is I/O-bound (STT/LLM/TTS API calls), so one Railway container with ~1GB RAM handles this.
+- **D-18:** No auto-scaling for MVP — single Railway container is sufficient for 5 concurrent sessions. Scaling strategy deferred to post-MVP.
+
+### Token Security & Session Creation
+- **D-19:** `/api/livekit/token` route performs a 4-step atomic flow: (1) look up respondent by invite token, (2) verify `status === 'in_progress'` (consent was given), (3) verify no existing `interviews` row with `status === 'active'` for this respondent (prevents duplicate sessions), (4) create the `interviews` row (status: 'active') and LiveKit room, then return the participant token.
+- **D-20:** Consent form's "Comenzar entrevista" calls this API route — on success, the page swaps from consent form to interview room component with the received token.
+
+### Audio Recording Pipeline
+- **D-21:** Start Room Composite Egress via LiveKit Server SDK when the room is created (in the same `/api/livekit/token` route). Point Egress output at Supabase Storage's S3-compatible API.
+- **D-22:** When interview ends, the agent or a LiveKit webhook stops Egress. Recording URL is saved to the `interviews` row.
+- **D-23:** If Egress fails, the interview continues uninterrupted — real-time transcript entries are the primary artifact, audio recording is supplementary. Log the failure, don't block.
+
+### Frontend SDK
+- **D-24:** Use `@livekit/components-react` for the interview room — pre-built hooks (`LiveKitRoom`, `useLocalParticipant`, `useConnectionState`, `useDataChannel`) provide reliable WebRTC plumbing. All visual styling done with Tailwind/shadcn to match the dark-first aesthetic. No pre-built UI chrome to fight.
+
+### Researcher Dashboard Integration
+- **D-25:** Enhance the existing Respondents tab in campaign detail — add interview status column (not started / in progress / completed / dropped), duration, and "Ver transcripción" link for completed interviews.
+- **D-26:** Transcript viewer at `/campaigns/[id]/interviews/[interviewId]` — full transcript with speaker labels, timestamps, and link to audio recording. Minimal but polished read-only view.
+
 ### Connection & Session Flow
 - **D-09:** Same page view swap after consent — `/interview/[token]` page transitions from consent form to interview room UI after consent submission. No page navigation, smoother UX.
 - **D-10:** LiveKit room tokens generated via Next.js API route — server-side API route (e.g., `/api/livekit/token`) generates LiveKit participant token using LiveKit Server SDK. Keeps secrets on server, works with Vercel.
@@ -40,13 +64,13 @@ Live AI voice interviews via WebRTC (LiveKit). Respondents click an invite link,
 - Mobile responsiveness of interview room
 - Loading states and connection progress indicators
 - Visual feedback during AI speaking vs listening (waveform, avatar, pulse animation)
-- Time management warnings (approaching duration target)
 - Off-topic response handling prompts in the system prompt template
 - Silence detection and gentle re-engagement behavior
 - Error states (agent disconnect, Supabase write failures)
 - Interview room header design (logo, timer placement, campaign name)
 - Exact function tool parameter schemas for generic insight tools
-- LiveKit Egress configuration details (composite vs track, format)
+- Egress format and configuration details (audio codec, file format)
+- Transcript viewer page layout and styling
 
 </decisions>
 
@@ -101,8 +125,10 @@ Live AI voice interviews via WebRTC (LiveKit). Respondents click an invite link,
 - New API route needed: `/api/livekit/token` for generating LiveKit participant tokens
 - New Supabase migration: `entrevista.interviews` and `entrevista.transcript_entries` tables
 - Python agent deployed on Railway — needs new repo/directory for the multi-tenant version
-- LiveKit Cloud configuration needed for Egress (recording)
-- Agent needs `@livekit/components-react` on the frontend for WebRTC connection
+- LiveKit Cloud configuration needed for Egress (recording) — Egress output pointed at Supabase Storage S3 API
+- Frontend uses `@livekit/components-react` for WebRTC connection (hooks + providers, custom UI)
+- Respondents tab in campaign detail enhanced with interview status column and transcript links
+- New transcript viewer page: `/campaigns/[id]/interviews/[interviewId]`
 
 </code_context>
 
