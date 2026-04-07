@@ -59,18 +59,46 @@ Live AI voice interviews via WebRTC (LiveKit). Respondents click an invite link,
 - **D-13:** New `entrevista.interviews` and `entrevista.transcript_entries` tables — interviews table: id, campaign_id, respondent_id, org_id, status, started_at, ended_at, duration_seconds, recording_url. Transcript entries: id, interview_id, speaker, text, elapsed_ms. Both with org_id for RLS.
 - **D-14:** Agent writes transcript entries to Supabase in real-time — same as prototype (on_user_turn_completed + conversation_item_added events). Entries available immediately for the dashboard.
 
+### Premium UX — Pre-Interview Lobby
+- **D-27:** Guided mic check before interview starts — after consent, show a branded lobby screen with: (1) mic device selector via `useMediaDeviceSelect({ kind: 'audioinput' })`, (2) real-time mic level meter via `useTrackVolume()` showing green bar when audio detected, (3) interviewer name (voice persona name), estimated duration, and campaign name display. Respondent clicks "Comenzar" only after mic is confirmed working.
+- **D-28:** Three-phase page flow on `/interview/[token]`: consent form → lobby/mic check → interview room. Each transition uses a smooth fade animation (~300ms ease-out). No hard page navigation — all client-side state swaps within the same route.
+
+### Premium UX — AI State Visualization
+- **D-29:** Morphing orb as the primary AI state indicator — centered above the transcript. Orb uses the brand's violet accent (`indigo-500`) as base color. Four visual states:
+  - **Idle/connecting**: Static circle, subtle glow, gentle scale pulse (1.0 → 1.03, 2s ease-in-out loop)
+  - **Listening**: Breathe animation, border glow intensifies, ring ripple outward every 1.5s. Small "Escuchando..." label below
+  - **Thinking (LLM processing)**: Orb contracts to scale(0.95), internal shimmer effect (CSS radial-gradient rotation, 400ms cycle). "Procesando..." label
+  - **Speaking**: Orb surface undulates — `border-radius` morphing between blob shapes keyed to audio amplitude via `useTrackVolume()` on the agent's audio track. Active waveform feel
+- **D-30:** State transitions use 250-300ms `ease-out`. Implementation: CSS animations for basic states, Web Audio API `AnalyserNode` for amplitude-reactive speaking effects. No WebGL needed — CSS `filter: blur()` and `border-radius` morphing achieve the effect.
+- **D-31:** Use LiveKit SDK hooks for state detection: `useIsSpeaking(agentParticipant)` for speaking state, `useConnectionState()` for connecting/reconnecting, and agent data channel messages for thinking state (agent sends `{"type": "thinking"}` before LLM call).
+
+### Premium UX — Interview Progress
+- **D-32:** Subtle phase indicator below the orb — shows current conversation phase as a minimal label: "Calentamiento" → "Conversación" → "Cierre". Phase transitions received via `useDataChannel('phase-change')` from the agent's `transition_phase` function tool. No numbered steps or progress bar — just the phase name with a smooth fade transition.
+
+### Premium UX — Post-Interview Screen
+- **D-33:** After interview ends, orb fades out and a completion card slides in with: campaign name, interview duration, number of topics discussed, and a warm message: "Gracias por tu tiempo. El investigador recibirá tus insights pronto." Dark-first card matching the app aesthetic. No action needed from respondent — they can close the tab.
+
+### Conversational Pacing (Agent Config)
+- **D-34:** VAD tuned for interview-style conversation — longer endpointing to avoid cutting off thoughtful respondents:
+  - `min_endpointing_delay = 1.0s` (default 0.5s — interviews need longer pauses for thinking)
+  - `prefix_padding_duration = 0.3s` (default — avoids clipping first syllable)
+  - Spanish speech has longer natural pauses than English — 1.0s prevents premature turn-taking
+- **D-35:** Interruption handling — allow natural barge-in:
+  - `allow_interruptions = True` — respondents must be able to redirect the AI
+  - `false_interruption_timeout = 2.0s` — prevents coughs/background noise from killing AI's response
+  - `resume_false_interruption = True` — agent resumes speaking after a false interruption (critical for multi-sentence questions)
+- **D-36:** No artificial response delay — pipeline latency (STT + Claude TTFT + TTS TTFB) naturally provides 300-500ms which is in the ideal 400-600ms conversational range. Adding delay would make it feel sluggish. Measure actual latency in testing and only add delay if below 300ms.
+- **D-37:** Silence re-engagement — `user_away_timeout = 12.0s`. For shorter silences (5-8s), the system prompt instructs Claude to say gentle re-engagement prompts like "Tómate tu tiempo..." rather than using a mechanical timeout. This keeps the re-engagement conversational, not robotic.
+
 ### Claude's Discretion
-- Mic permission handling UX (prompt flow, error states)
 - Mobile responsiveness of interview room
-- Loading states and connection progress indicators
-- Visual feedback during AI speaking vs listening (waveform, avatar, pulse animation)
-- Off-topic response handling prompts in the system prompt template
-- Silence detection and gentle re-engagement behavior
-- Error states (agent disconnect, Supabase write failures)
-- Interview room header design (logo, timer placement, campaign name)
+- Error states (agent disconnect, Supabase write failures, TTS/STT failures)
 - Exact function tool parameter schemas for generic insight tools
 - Egress format and configuration details (audio codec, file format)
 - Transcript viewer page layout and styling
+- Off-topic response handling prompts in the system prompt template
+- Orb animation fine-tuning (exact blob shape keyframes, glow intensity, color shifts)
+- Mic check "audio detected" threshold calibration
 
 </decisions>
 
@@ -113,6 +141,17 @@ Live AI voice interviews via WebRTC (LiveKit). Respondents click an invite link,
 - `consultoria_ale/agent/voxtral_tts.py` — Custom TTS adapter. Copy as-is.
 - `src/lib/supabase/admin.ts` — Admin Supabase client (used for token validation — extend for interview data)
 
+### LiveKit React SDK Hooks (research-confirmed available)
+- `useTrackVolume(trackRef)` — Real-time 0-1.0 audio level. Use for mic meter in lobby AND orb amplitude in interview room.
+- `useConnectionState()` — Returns `Disconnected | Connecting | Connected | Reconnecting`. Drive lobby/room transitions.
+- `useDataChannel(topic?)` — Returns `{ send, message }`. Use topics: `"text-input"`, `"phase-change"`, `"thinking"`. Frontend ↔ agent messaging.
+- `useIsSpeaking(participant)` — Boolean. Detect when agent is speaking → drive orb speaking state.
+- `useLocalParticipant()` — Local participant + state. Mute/unmute controls.
+- `useMediaDeviceSelect({ kind: 'audioinput' })` — Returns `{ devices, activeDeviceId, setActiveMediaDevice }`. Build custom mic picker for lobby.
+- `useIsMuted(trackRef)` — Boolean muted state for mute button UI.
+- `RoomEvent.LocalAudioSilenceDetected` — Fires when mic publishes silence. Useful for "check your mic" warnings.
+- LiveKit provides prebuilt audio visualizer components that render animations driven by track volume and agent state — evaluate for orb implementation.
+
 ### Established Patterns
 - Server Actions for mutations (auth, campaigns, consent)
 - RLS with `entrevista.get_org_id()` for tenant isolation — new interview tables need org_id
@@ -139,6 +178,9 @@ Live AI voice interviews via WebRTC (LiveKit). Respondents click an invite link,
 - Research brief sections (goals, data points, context, tone) from Phase 2 map directly to how the prototype's `interview_config.py` structures its system prompt — the template approach preserves this proven pattern.
 - The 4 voice personas defined in `src/lib/constants/campaign.ts` (voxtral-natalia, voxtral-diego, elevenlabs-sofia, elevenlabs-marco) need corresponding TTS configuration in the agent.
 - The prototype's data channel handling for text input (`on_data` listener for `text_input` and `end_interview` message types) should be reused.
+- **Premium UX reference**: ChatGPT Voice Mode's morphing orb is the dominant pattern users now recognize for voice AI. Our orb should use the brand's violet accent to distinguish from OpenAI's blue-white. The orb sits above the transcript — transcript below is unique to our product (ChatGPT hides transcript).
+- **Conversational feel**: The AI should feel "unhurried" — like a skilled human interviewer who leaves a beat after the respondent finishes. The 1.0s VAD endpointing + natural pipeline latency achieves this without artificial delays.
+- **The lobby matters**: The mic check screen is the respondent's first impression of the actual product. It should feel like a premium video call lobby (Zoom/Google Meet quality) — not a generic browser permission prompt.
 
 </specifics>
 

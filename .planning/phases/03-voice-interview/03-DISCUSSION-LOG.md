@@ -202,19 +202,44 @@ User asked for Claude's recommendations. All accepted as locked decisions.
 
 ---
 
+## Premium Experience Research (follow-up)
+
+User asked for "holy shit" premium product feel. Claude identified 6 UX gaps and launched 3 parallel research agents:
+1. Voice AI UX patterns (ChatGPT voice mode, Gemini Live, Hume EVI, Siri, Vapi)
+2. LiveKit React SDK capabilities (hooks, components, audio visualization)
+3. Conversational AI pacing (VAD tuning, response delay, interruption handling)
+
+### Pre-Interview Lobby / Mic Check
+**Research finding:** Premium voice products (Zoom, Google Meet, ChatGPT) all have a pre-call device check. LiveKit provides `useMediaDeviceSelect` and `useTrackVolume` hooks for building custom mic selection + level visualization.
+**Decision (D-27, D-28):** Guided mic check with device selector, real-time level meter, interviewer info. Three-phase page flow: consent → lobby → interview room with smooth fade transitions.
+
+### AI State Visualization (Morphing Orb)
+**Research finding:** ChatGPT Voice Mode's morphing orb is the dominant pattern. Uses color + shape + motion to distinguish listening/thinking/speaking. Gemini Live uses radial waveforms. Hume uses fluid metaball blobs. All use 250-300ms state transitions.
+**Decision (D-29, D-30, D-31):** Violet-branded morphing orb with 4 visual states. CSS animations + Web Audio API for amplitude-reactive effects. LiveKit's `useIsSpeaking` and `useTrackVolume` hooks drive state detection.
+
+### Interview Progress
+**Research finding:** Phase labels reduce respondent anxiety ("how much longer?") without adding clutter.
+**Decision (D-32):** Subtle phase label below orb: "Calentamiento" → "Conversación" → "Cierre". Received via data channel from agent's `transition_phase` tool.
+
+### Post-Interview Screen
+**Decision (D-33):** Warm completion card with campaign name, duration, topics discussed, and reassuring message.
+
+### Conversational Pacing
+**Research finding:** Silero VAD default 0.5s endpointing cuts off interview respondents mid-thought. Spanish speech has longer natural pauses. LiveKit provides `false_interruption_timeout` and `resume_false_interruption` for handling coughs/noise. Pipeline latency (300-500ms) naturally provides ideal conversational delay — no artificial delay needed.
+**Decision (D-34, D-35, D-36, D-37):** VAD tuned for interviews (1.0s endpointing), smart interruption handling (2.0s false interruption timeout, resume after false interruption), no artificial delay, 12s silence re-engagement via conversational prompt.
+
+---
+
 ## Claude's Discretion
 
-- Mic permission handling UX
 - Mobile responsiveness of interview room
-- Loading states and connection progress indicators
-- Visual feedback during AI speaking vs listening
-- Off-topic response handling
-- Silence detection and re-engagement
-- Error states
-- Interview room header design
-- Function tool parameter schemas
-- Egress format and configuration details
+- Error states (agent disconnect, Supabase write failures, TTS/STT failures)
+- Exact function tool parameter schemas for generic insight tools
+- Egress format and configuration details (audio codec, file format)
 - Transcript viewer page layout and styling
+- Off-topic response handling prompts in the system prompt template
+- Orb animation fine-tuning (exact blob shape keyframes, glow intensity, color shifts)
+- Mic check "audio detected" threshold calibration
 
 ## Deferred Ideas
 
