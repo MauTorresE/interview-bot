@@ -79,7 +79,7 @@ None -- discussion stayed within phase scope
 | WEBR-02 | AI interviewer asks questions from campaign script using selected voice persona | Agent reads campaign config from Supabase, template injection for research brief, voice persona switch (Voxtral custom TTS / ElevenLabs plugin) |
 | WEBR-03 | AI generates adaptive follow-up questions based on response analysis | Claude Sonnet as LLM in LiveKit agent, system prompt with research brief goals/data points, proven prototype pattern |
 | WEBR-04 | AI gracefully handles off-topic responses, silence, and confusion | System prompt instructions for redirection, VAD tuning (1.0s endpointing), user_away_timeout=12s, re-engagement prompts |
-| WEBR-05 | Real-time transcription displayed during interview | Agent writes transcript entries to Supabase via `on_user_turn_completed` + `conversation_item_added`, frontend polls or subscribes via Supabase realtime |
+| WEBR-05 | Real-time transcription displayed during interview | Agent sends transcript entries via LiveKit data channel for live display, writes to Supabase in parallel for persistence |
 | WEBR-06 | Interview audio recorded and stored in Supabase Storage | LiveKit Room Composite Egress -> S3-compatible Supabase Storage endpoint |
 | WEBR-07 | Respondent can use text input as fallback during voice interview | Data channel with `text-input` topic, `session.generate_reply(user_input=text)` on agent side, TextFallbackInput component |
 | WEBR-08 | Interview respects campaign duration target with graceful time management | Elapsed time in system prompt context, 80% nudge + 95% forced closing guardrails, InterviewState tracks timing |
@@ -124,7 +124,7 @@ None -- discussion stayed within phase scope
 | Custom VoxtralTTS adapter | Wait for `livekit-plugins-mistralai` TTS | Not available yet (GitHub issue #5247 opened 2026-03-27). Custom adapter is proven in prototype. [VERIFIED: GitHub] |
 | `useAgent()` for state detection | Custom data channel messages for thinking state | `useAgent()` provides automatic state detection via `lk.agent.state` participant attribute. Cleaner than manual data channel. D-31 mentions data channel for thinking but `useAgent()` already handles this. |
 | `useVoiceAssistant()` | `useAgent()` | `useAgent()` is the evolved version with better error handling and pre-connect buffering. Both available, `useAgent()` is newer. [CITED: docs.livekit.io/frontends/build/agent-state/] |
-| Supabase Realtime subscriptions for transcript | Polling | Realtime subscriptions would be more elegant but add complexity. Polling every 2-3s is simpler for MVP since transcript entries are written by the agent. [ASSUMED] |
+| Supabase Realtime subscriptions for transcript | LiveKit data channel | Data channel delivers transcript entries instantly with zero additional infrastructure. Supabase writes happen in parallel for persistence only. |
 
 **Installation:**
 ```bash
@@ -150,6 +150,10 @@ agent/                           # Python agent (new directory at repo root)
   requirements.txt               # Python dependencies
   Dockerfile                     # Railway deployment
   .env.example                   # Required environment variables
+  pytest.ini                     # Python test config
+  tests/                         # Python tests
+    conftest.py                  # Mock fixtures
+    test_interview_state.py      # InterviewState guardrail tests
 
 src/
   app/
@@ -175,6 +179,14 @@ src/
       text-fallback-input.tsx    # Always-visible text input
       interview-timer.tsx        # Elapsed / target display
       phase-indicator.tsx        # Current conversation phase label
+
+tests/
+  api/
+    livekit-token.test.ts        # Token route tests
+  components/
+    transcript-feed.test.tsx     # Transcript feed tests
+    text-fallback-input.test.tsx # Text input tests
+    interview-room.test.tsx      # Interview room tests
 
 supabase/
   migrations/
@@ -230,11 +242,11 @@ async def entrypoint(ctx: JobContext):
     )
     # ... start session
 ```
-[ASSUMED — based on prototype patterns, specific API surface verified]
+[ASSUMED -- based on prototype patterns, specific API surface verified]
 
 ### Pattern 2: Token Route as Interview Session Factory (D-19)
 
-**What:** The `/api/livekit/token` API route performs a 4-step atomic operation: validate respondent, create interview row, create LiveKit room, start Egress, and return participant token.
+**What:** The `/api/livekit/token` API route performs a 4-step atomic operation: validate respondent, create interview row, create LiveKit room, start Egress, and return participant token with campaignInfo.
 
 **When to use:** Called once when respondent clicks "Comenzar entrevista" after consent.
 
@@ -270,6 +282,13 @@ export async function POST(req: Request) {
   if (existing) {
     return Response.json({ error: 'already_active' }, { status: 409 })
   }
+
+  // Look up campaign info for response
+  const { data: campaign } = await admin
+    .from('campaigns')
+    .select('duration_target, voice_persona')
+    .eq('id', respondent.campaign_id)
+    .single()
 
   // Step 3: Create interview row
   const { data: interview } = await admin
@@ -333,6 +352,11 @@ export async function POST(req: Request) {
     token: livekitToken,
     roomName,
     interviewId: interview.id,
+    wsUrl: process.env.LIVEKIT_URL!,
+    campaignInfo: {
+      duration: campaign?.duration_target ?? 15,
+      personaName: VOICE_PERSONAS.find(p => p.id === campaign?.voice_persona)?.name ?? 'Natalia',
+    },
   })
 }
 ```
@@ -374,11 +398,11 @@ function InterviewOrb() {
 ```
 [VERIFIED: useAgent() API from docs.livekit.io/frontends/build/agent-state/]
 
-### Pattern 4: Data Channel for Text Input + Phase Changes (D-03, D-32)
+### Pattern 4: Data Channel for Text Input + Phase Changes + Transcript (D-03, D-32, WEBR-05)
 
-**What:** Use `useDataChannel` for two purposes: (1) sending text fallback input from frontend to agent, (2) receiving phase change notifications from agent to frontend.
+**What:** Use `useDataChannel` for three purposes: (1) sending text fallback input from frontend to agent, (2) receiving phase change notifications from agent to frontend, (3) receiving real-time transcript entries from agent for live display.
 
-**When to use:** TextFallbackInput sends text via `text-input` topic. PhaseIndicator receives updates via `phase-change` topic.
+**When to use:** TextFallbackInput sends text via `text-input` topic. PhaseIndicator receives updates. TranscriptFeed receives entries via `{"type": "transcript", ...}` messages.
 
 **Example (frontend send):**
 ```typescript
@@ -410,15 +434,27 @@ def on_data(data_packet):
     elif payload.get("type") == "end_interview":
         asyncio.create_task(session.aclose())
 ```
+
+**Example (agent sends transcript via data channel):**
+```python
+# After every save_transcript_entry() call in event handlers:
+self._send_data({
+    "type": "transcript",
+    "speaker": speaker,  # "bot" or "client"
+    "content": text,
+    "elapsed_ms": elapsed_ms,
+})
+```
 [VERIFIED: prototype code + LiveKit useDataChannel docs]
 
 ### Anti-Patterns to Avoid
 
 - **Hand-rolling WebRTC connections:** Use `LiveKitRoom` provider from `@livekit/components-react`. Never manage RTCPeerConnection directly.
-- **Custom state detection via data channel when `useAgent()` handles it:** The `useAgent()` hook automatically tracks agent states. Only use data channels for application-specific messages (text input, phase changes, end interview).
+- **Custom state detection via data channel when `useAgent()` handles it:** The `useAgent()` hook automatically tracks agent states. Only use data channels for application-specific messages (text input, phase changes, end interview, transcript entries).
 - **Blocking on Egress failures:** Per D-23, Egress is supplementary. Never let recording failures prevent an interview from starting or continuing.
 - **Synchronous Supabase writes in agent hot path:** The prototype correctly uses `asyncio.create_task()` for non-blocking persistence. Maintain this pattern.
 - **Rebuilding from scratch instead of copying prototype:** The directive is "copy and evolve." The prototype's patterns for STT event handling, data channel, system prompt injection, and function tools are battle-tested.
+- **Polling Supabase for transcript display:** Use data channel for live transcript delivery. Supabase writes are for persistence only, not for frontend display.
 
 ## Don't Hand-Roll
 
@@ -761,27 +797,23 @@ async def end_interview(
 | A4 | `useAgent()` hook is available in `@livekit/components-react` 2.9.20 | Architecture Patterns | If hook doesn't exist in this version, fall back to `useVoiceAssistant()`. LOW risk -- documented on livekit.io. |
 | A5 | System prompt template with 4 brief sections is sufficient for all interviewer styles | Code Examples | If styles need radically different prompt structures, template may not be flexible enough. LOW risk -- prototype validates the template approach. |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **Transcript Display: Polling vs. Supabase Realtime**
-   - What we know: Agent writes transcript entries to Supabase in real-time. Frontend needs to display them.
-   - What's unclear: Whether to use Supabase Realtime subscriptions or polling from the frontend.
-   - Recommendation: Use LiveKit data channel to push transcript entries to frontend in real-time (agent already has the data). Save to Supabase in parallel for persistence. This avoids both polling and Realtime subscription complexity. The agent can send `{"type": "transcript", "speaker": "bot", "text": "..."}` via data channel.
+1. **Transcript Display: Polling vs. Supabase Realtime** (RESOLVED)
+   - **Decision:** Use LiveKit data channel for live transcript delivery. Agent sends `{"type": "transcript", "speaker": "bot"|"client", "content": "...", "elapsed_ms": N}` via data channel after every `save_transcript_entry()` call. Supabase writes happen in parallel for persistence only -- the frontend does NOT poll or subscribe to Supabase for live transcript display.
+   - **Rationale:** Data channel delivers transcript entries instantly with zero additional infrastructure. Avoids both polling latency (2-3s delay) and Supabase Realtime subscription complexity. The agent already has the transcript data at the moment of generation.
 
-2. **ElevenLabs Voice IDs for Personas**
-   - What we know: 4 voice personas defined in `campaign.ts` (voxtral-natalia, voxtral-diego, elevenlabs-sofia, elevenlabs-marco).
-   - What's unclear: Actual ElevenLabs voice IDs for Sofia and Marco (Mexican Spanish accent voices).
-   - Recommendation: Look up available ElevenLabs voices with Mexican accent during implementation. Map persona IDs to actual provider voice IDs in a config module.
+2. **ElevenLabs Voice IDs for Personas** (RESOLVED)
+   - **Decision:** Use placeholder voice IDs in the agent config module (`ELEVENLABS_VOICES` dict). During implementation, look up actual Mexican Spanish accent voice IDs from the ElevenLabs voice library and update the mapping. The agent code is structured so voice IDs are in a single config dict -- changing them is a one-line edit per persona.
+   - **Rationale:** Exact voice IDs depend on the user's ElevenLabs account and available voices. The architecture decouples voice ID lookup from agent logic.
 
-3. **Voxtral Voice IDs for Personas**
-   - What we know: Prototype uses a cloned voice ID (`0c1cb9a3-...`). The SaaS needs two distinct Voxtral voices (Natalia, Diego).
-   - What's unclear: Whether these are pre-existing Voxtral voices or need to be created via voice cloning.
-   - Recommendation: Use Voxtral's built-in Spanish voices if available, or clone two voices using 3-second reference audio (supported per Voxtral docs). Map voice IDs in config.
+3. **Voxtral Voice IDs for Personas** (RESOLVED)
+   - **Decision:** Use Voxtral's built-in Spanish voices if available (check `mistralai` API for voice listing). If no suitable built-in voices exist, clone two voices using 3-second reference audio (supported per Voxtral docs). Map voice IDs in the `VOXTRAL_VOICES` config dict. The prototype's cloned voice ID (`0c1cb9a3-...`) can be reused for one persona as a starting point.
+   - **Rationale:** Voxtral supports voice cloning with just 3 seconds of reference audio. Creating two distinct voices (male/female) is straightforward.
 
-4. **Supabase Storage Bucket for Recordings**
-   - What we know: Egress outputs to S3-compatible Supabase Storage.
-   - What's unclear: Whether the `recordings` bucket needs to be created manually or can be created via migration.
-   - Recommendation: Create bucket manually in Supabase dashboard or via Supabase Management API. Add S3 access keys to environment variables.
+4. **Supabase Storage Bucket for Recordings** (RESOLVED)
+   - **Decision:** Create the `recordings` bucket manually in Supabase Dashboard (Storage -> New Bucket, set to private). Generate S3 access keys from Dashboard (Project Settings -> Storage -> S3 Connection). This is documented in Plan 01's `user_setup` section as a human-required setup step.
+   - **Rationale:** Supabase Storage buckets cannot be created via SQL migrations. S3 access keys are separate from the service role key and must be generated in the dashboard. Both are one-time setup tasks included in `user_setup`.
 
 ## Environment Availability
 
@@ -811,35 +843,36 @@ async def end_interview(
 
 | Property | Value |
 |----------|-------|
-| Framework | Vitest 4.1.2 + jsdom |
-| Config file | `vitest.config.ts` |
+| Framework | Vitest 4.1.2 + jsdom (frontend), pytest (agent) |
+| Config file | `vitest.config.ts` (frontend), `agent/pytest.ini` (agent) |
 | Quick run command | `npx vitest run --reporter=verbose` |
-| Full suite command | `npx vitest run && npx playwright test` |
+| Full suite command | `npx vitest run && cd agent && python -m pytest -v` |
 
 ### Phase Requirements -> Test Map
 
 | Req ID | Behavior | Test Type | Automated Command | File Exists? |
 |--------|----------|-----------|-------------------|-------------|
-| WEBR-01 | Token route creates interview + returns LiveKit token | unit | `npx vitest run tests/api/livekit-token.test.ts -t "creates interview"` | No -- Wave 0 |
-| WEBR-01 | Token route rejects invalid/used tokens | unit | `npx vitest run tests/api/livekit-token.test.ts -t "rejects"` | No -- Wave 0 |
-| WEBR-05 | Transcript feed renders entries with speaker labels | unit | `npx vitest run tests/components/transcript-feed.test.tsx` | No -- Wave 0 |
-| WEBR-07 | Text input sends data channel message | unit | `npx vitest run tests/components/text-fallback-input.test.tsx` | No -- Wave 0 |
-| WEBR-08 | Time management guardrails fire at 80% and 95% | unit | `npx vitest run tests/agent/interview-state.test.ts` | No -- Wave 0 |
-| DASH-05 | Interview room renders orb, transcript, timer, controls | unit | `npx vitest run tests/components/interview-room.test.tsx` | No -- Wave 0 |
+| WEBR-01 | Token route creates interview + returns LiveKit token | unit | `npx vitest run tests/api/livekit-token.test.ts -t "creates interview"` | Wave 0 creates |
+| WEBR-01 | Token route rejects invalid/used tokens | unit | `npx vitest run tests/api/livekit-token.test.ts -t "rejects"` | Wave 0 creates |
+| WEBR-05 | Transcript feed renders entries with speaker labels | unit | `npx vitest run tests/components/transcript-feed.test.tsx` | Wave 0 creates |
+| WEBR-07 | Text input sends data channel message | unit | `npx vitest run tests/components/text-fallback-input.test.tsx` | Wave 0 creates |
+| WEBR-08 | Time management guardrails fire at 80% and 95% | unit | `cd agent && python -m pytest tests/test_interview_state.py -v` | Wave 0 creates |
+| DASH-05 | Interview room renders orb, transcript, timer, controls | unit | `npx vitest run tests/components/interview-room.test.tsx` | Wave 0 creates |
 | WEBR-02/03/04 | Agent conducts interview with follow-ups | manual-only | Manual: join interview room and talk | -- |
 | WEBR-06 | Egress records audio to Supabase Storage | manual-only | Manual: verify recording in Supabase dashboard | -- |
 
 ### Sampling Rate
 - **Per task commit:** `npx vitest run --reporter=verbose`
-- **Per wave merge:** `npx vitest run && npx playwright test`
+- **Per wave merge:** `npx vitest run && cd agent && python -m pytest -v`
 - **Phase gate:** Full suite green before `/gsd-verify-work`
 
 ### Wave 0 Gaps
-- [ ] `tests/api/livekit-token.test.ts` -- covers WEBR-01 token route logic (mock Supabase + LiveKit SDK)
-- [ ] `tests/components/transcript-feed.test.tsx` -- covers WEBR-05
-- [ ] `tests/components/text-fallback-input.test.tsx` -- covers WEBR-07
-- [ ] `tests/components/interview-room.test.tsx` -- covers DASH-05
-- [ ] Agent-side tests are Python (pytest) -- separate test infrastructure needed in `agent/` directory
+- [x] `tests/api/livekit-token.test.ts` -- covers WEBR-01 token route logic (Plan 03-00 Task 1)
+- [x] `tests/components/transcript-feed.test.tsx` -- covers WEBR-05 (Plan 03-00 Task 1)
+- [x] `tests/components/text-fallback-input.test.tsx` -- covers WEBR-07 (Plan 03-00 Task 1)
+- [x] `tests/components/interview-room.test.tsx` -- covers DASH-05 (Plan 03-00 Task 1)
+- [x] `agent/tests/test_interview_state.py` -- covers WEBR-08 (Plan 03-00 Task 2)
+- [x] `agent/pytest.ini` + `agent/tests/conftest.py` -- Python test infrastructure (Plan 03-00 Task 2)
 
 ## Security Domain
 
