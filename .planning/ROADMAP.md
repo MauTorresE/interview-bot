@@ -67,12 +67,13 @@ Plans:
   3. AI gracefully handles off-topic responses, silence, and respondent confusion without breaking the conversation
   4. Real-time transcript with speaker labels displays during the interview, and respondent can fall back to text input
   5. Interview audio is recorded and stored, and the session respects the campaign duration target
-**Plans:** 4 plans
+**Plans:** 5 plans
 **UI hint**: yes
 
 Plans:
-- [ ] 03-01-PLAN.md — Database migration (interviews + transcript_entries), LiveKit token route, Egress webhook, consent-to-interview bridge
-- [ ] 03-02-PLAN.md — Python LiveKit agent (multi-tenant config, system prompt template, dual TTS, function tools, time management)
+- [ ] 03-00-PLAN.md — Wave 0 test scaffold: frontend test stubs (Vitest) and Python test infrastructure (pytest) with InterviewState guardrail tests
+- [ ] 03-01-PLAN.md — Database migration (interviews + transcript_entries), LiveKit token route with campaignInfo, Egress webhook, consent-to-interview bridge
+- [ ] 03-02-PLAN.md — Python LiveKit agent (multi-tenant config, system prompt template, dual TTS, function tools, time management, data channel transcripts)
 - [ ] 03-03-PLAN.md — Lobby mic check screen, interview room UI (morphing orb, transcript feed, text input, timer, controls)
 - [ ] 03-04-PLAN.md — Completion card, enhanced respondents tab with interview status, transcript viewer page
 
@@ -119,6 +120,6 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5
 |-------|----------------|--------|-----------|
 | 1. Foundation | 3/3 | Complete | - |
 | 2. Campaign & Script Builder | 0/4 | Not started | - |
-| 3. Voice Interview | 0/4 | Not started | - |
+| 3. Voice Interview | 0/5 | Not started | - |
 | 4. Analysis & Reports | 0/3 | Not started | - |
 | 5. WhatsApp Channel | 0/3 | Not started | - |
