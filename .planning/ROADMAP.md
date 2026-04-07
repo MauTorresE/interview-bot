@@ -71,9 +71,9 @@ Plans:
 **UI hint**: yes
 
 Plans:
-- [ ] 03-00-PLAN.md — Wave 0 test scaffold: frontend test stubs (Vitest) and Python test infrastructure (pytest) with InterviewState guardrail tests
-- [ ] 03-01-PLAN.md — Database migration (interviews + transcript_entries), LiveKit token route with campaignInfo, Egress webhook, consent-to-interview bridge
-- [ ] 03-02-PLAN.md — Python LiveKit agent (multi-tenant config, system prompt template, dual TTS, function tools, time management, data channel transcripts)
+- [x] 03-00-PLAN.md — Wave 0 test scaffold: frontend test stubs (Vitest) and Python test infrastructure (pytest) with InterviewState guardrail tests
+- [x] 03-01-PLAN.md — Database migration (interviews + transcript_entries), LiveKit token route with campaignInfo, Egress webhook, consent-to-interview bridge
+- [x] 03-02-PLAN.md — Python LiveKit agent (multi-tenant config, system prompt template, dual TTS, function tools, time management, data channel transcripts)
 - [ ] 03-03-PLAN.md — Lobby mic check screen, interview room UI (morphing orb, transcript feed, text input, timer, controls)
 - [ ] 03-04-PLAN.md — Completion card, enhanced respondents tab with interview status, transcript viewer page
 
