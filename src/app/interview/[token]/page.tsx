@@ -1,6 +1,6 @@
 import { createAdminClient } from '@/lib/supabase/admin'
 import { Card, CardContent } from '@/components/ui/card'
-import { ConsentForm } from './consent-form'
+import { InterviewFlowWrapper } from './interview-flow-wrapper'
 
 type PageProps = {
   params: Promise<{ token: string }>
@@ -63,10 +63,10 @@ export default async function InterviewConsentPage({ params }: PageProps) {
       <Card className="w-full max-w-[560px]">
         <CardContent className="p-8 text-center">
           <h1 className="text-xl font-semibold text-foreground mb-3">
-            Enlace no válido
+            Enlace no valido
           </h1>
           <p className="text-sm text-muted-foreground">
-            Este enlace de entrevista no es válido o ha expirado.
+            Este enlace de entrevista no es valido o ha expirado.
           </p>
         </CardContent>
       </Card>
@@ -95,20 +95,20 @@ export default async function InterviewConsentPage({ params }: PageProps) {
       <Card className="w-full max-w-[560px]">
         <CardContent className="p-8 text-center">
           <h1 className="text-xl font-semibold text-foreground mb-3">
-            Enlace no válido
+            Enlace no valido
           </h1>
           <p className="text-sm text-muted-foreground">
-            Este enlace de entrevista no es válido o ha expirado.
+            Este enlace de entrevista no es valido o ha expirado.
           </p>
         </CardContent>
       </Card>
     )
   }
 
-  // Valid token -- render consent form
+  // Valid token -- render interview flow with consent -> lobby -> interview -> completion
   return (
-    <ConsentForm
-      token={token}
+    <InterviewFlowWrapper
+      inviteToken={token}
       tokenType={result.type}
       campaignName={result.campaignName}
     />

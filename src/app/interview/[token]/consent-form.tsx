@@ -9,24 +9,25 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Loader2 } from 'lucide-react'
+import type { InterviewSession } from './interview-flow-wrapper'
 
 type ConsentFormProps = {
   token: string
   tokenType: 'respondent' | 'campaign'
   campaignName: string
+  onInterviewReady?: (data: InterviewSession) => void
 }
 
 const CONSENT_ITEMS = [
-  'Acepto que esta entrevista será grabada en audio para su posterior análisis.',
-  'Acepto que mis respuestas serán procesadas por inteligencia artificial para generar insights de investigación.',
-  'Entiendo que mis datos serán tratados de forma confidencial y anonimizada en los reportes finales.',
+  'Acepto que esta entrevista sera grabada en audio para su posterior analisis.',
+  'Acepto que mis respuestas seran procesadas por inteligencia artificial para generar insights de investigacion.',
+  'Entiendo que mis datos seran tratados de forma confidencial y anonimizada en los reportes finales.',
 ] as const
 
-export function ConsentForm({ token, tokenType, campaignName }: ConsentFormProps) {
+export function ConsentForm({ token, tokenType, campaignName, onInterviewReady }: ConsentFormProps) {
   const [checks, setChecks] = useState([false, false, false])
   const [name, setName] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
-  const [isComplete, setIsComplete] = useState(false)
 
   const allChecked = checks.every(Boolean)
   const nameValid = tokenType === 'campaign' ? name.trim().length > 0 : true
@@ -44,38 +45,57 @@ export function ConsentForm({ token, tokenType, campaignName }: ConsentFormProps
     if (!canSubmit) return
     setIsSubmitting(true)
 
+    // Step 1: Record consent via server action
     const result =
       tokenType === 'respondent'
         ? await recordConsent(token)
         : await recordConsentForReusableLink(token, name.trim())
 
-    setIsSubmitting(false)
-
     if (result.error) {
+      setIsSubmitting(false)
       const messages: Record<string, string> = {
-        invalid: 'Este enlace de entrevista no es válido o ha expirado.',
+        invalid: 'Este enlace de entrevista no es valido o ha expirado.',
         already_used: 'Este enlace ya fue utilizado.',
-        campaign_archived: 'Esta campaña ya no está activa.',
+        campaign_archived: 'Esta campana ya no esta activa.',
       }
       toast.error(messages[result.error] ?? result.error)
-    } else {
-      setIsComplete(true)
+      return
     }
-  }
 
-  if (isComplete) {
-    return (
-      <Card className="w-full max-w-[560px]">
-        <CardContent className="p-8 text-center">
-          <h1 className="text-xl font-semibold text-foreground mb-3">
-            Entrevista lista
-          </h1>
-          <p className="text-sm text-muted-foreground">
-            Tu consentimiento ha sido registrado. La entrevista comenzará pronto.
-          </p>
-        </CardContent>
-      </Card>
-    )
+    // Step 2: Create interview session via token route
+    try {
+      const res = await fetch('/api/livekit/token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token }),
+      })
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({ error: 'unknown' }))
+        const errorMessages: Record<string, string> = {
+          consent_required: 'Se requiere consentimiento antes de iniciar.',
+          already_active: 'Ya tienes una entrevista activa.',
+          create_failed: 'No se pudo crear la entrevista. Intenta de nuevo.',
+        }
+        toast.error(errorMessages[errData.error] ?? 'Error al preparar la entrevista.')
+        setIsSubmitting(false)
+        return
+      }
+
+      const data = await res.json()
+
+      if (onInterviewReady) {
+        onInterviewReady({
+          token: data.token,
+          wsUrl: data.wsUrl,
+          interviewId: data.interviewId,
+          campaignInfo: data.campaignInfo,
+        })
+      }
+    } catch {
+      toast.error('Error de conexion. Intenta de nuevo.')
+      setIsSubmitting(false)
+    }
   }
 
   return (
@@ -152,7 +172,7 @@ export function ConsentForm({ token, tokenType, campaignName }: ConsentFormProps
 
         {/* Footer */}
         <p className="text-xs text-muted-foreground text-center mt-4">
-          Al continuar, aceptas los términos de uso.
+          Al continuar, aceptas los terminos de uso.
         </p>
       </CardContent>
     </Card>
