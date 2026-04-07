@@ -43,3 +43,12 @@ export const DURATION_OPTIONS = [
   { value: '15', label: '15 min' },
   { value: '30', label: '30 min' },
 ] as const
+
+export const INTERVIEW_STATUSES = ['active', 'completed', 'dropped'] as const
+export type InterviewStatus = typeof INTERVIEW_STATUSES[number]
+
+export const INTERVIEW_STATUS_LABELS: Record<InterviewStatus, string> = {
+  active: 'En progreso',
+  completed: 'Completada',
+  dropped: 'Abandonada',
+}
