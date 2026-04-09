@@ -144,7 +144,11 @@ class VoxtralChunkedStream(tts.ChunkedStream):
             output.flush()
 
         except httpx.HTTPStatusError as e:
-            logger.error(f"Voxtral TTS HTTP error: {e.response.status_code} {e.response.text}")
+            try:
+                body = await e.response.aread()
+                logger.error(f"Voxtral TTS HTTP error: {e.response.status_code} {body.decode()}")
+            except Exception:
+                logger.error(f"Voxtral TTS HTTP error: {e.response.status_code}")
             raise
         except Exception as e:
             logger.error(f"Voxtral TTS error: {e}", exc_info=True)

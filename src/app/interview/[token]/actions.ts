@@ -111,7 +111,7 @@ export async function recordConsent(token: string): Promise<{
 export async function recordConsentForReusableLink(
   token: string,
   name: string
-): Promise<{ success?: boolean; error?: string }> {
+): Promise<{ success?: boolean; respondentId?: string; error?: string }> {
   const admin = getAdmin()
 
   // Look up campaign by reusable_invite_token
@@ -131,18 +131,18 @@ export async function recordConsentForReusableLink(
   }
 
   // Create new respondent with consent (T-02-13)
-  const { error } = await admin.from('respondents').insert({
+  const { data: respondent, error } = await admin.from('respondents').insert({
     campaign_id: campaign.id,
     org_id: campaign.org_id,
     name,
     email: null,
     status: 'in_progress',
     consent_given_at: new Date().toISOString(),
-  })
+  }).select('id').single()
 
-  if (error) {
+  if (error || !respondent) {
     return { error: 'No se pudo registrar el consentimiento. Intenta de nuevo.' }
   }
 
-  return { success: true }
+  return { success: true, respondentId: respondent.id }
 }

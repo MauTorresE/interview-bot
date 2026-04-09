@@ -4,26 +4,29 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { VOICE_PERSONAS } from '@/lib/constants/campaign'
 
 export async function POST(req: NextRequest) {
-  let body: { token?: string }
+  let body: { token?: string; respondentId?: string; rejoin?: boolean }
   try {
     body = await req.json()
   } catch {
     return NextResponse.json({ error: 'invalid_body' }, { status: 400 })
   }
 
-  const { token } = body
+  const { token, respondentId, rejoin } = body
   if (!token || typeof token !== 'string') {
     return NextResponse.json({ error: 'missing_token' }, { status: 400 })
   }
 
   const admin = createAdminClient()
 
-  // Step 1: Look up respondent by invite_token
-  const { data: respondent } = await admin
-    .from('respondents')
-    .select('id, status, campaign_id, name, org_id')
-    .eq('invite_token', token)
-    .single()
+  // Step 1: Look up respondent — by ID (reusable link flow) or by invite_token (direct link flow)
+  type Respondent = { id: string; status: string; campaign_id: string; name: string; org_id: string }
+
+  const query = respondentId
+    ? admin.from('respondents').select('id, status, campaign_id, name, org_id').eq('id', respondentId).single()
+    : admin.from('respondents').select('id, status, campaign_id, name, org_id').eq('invite_token', token).single()
+
+  const { data: respondentData } = await query
+  const respondent = respondentData as Respondent | null
 
   if (!respondent) {
     return NextResponse.json({ error: 'invalid' }, { status: 400 })
@@ -34,7 +37,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'consent_required' }, { status: 400 })
   }
 
-  // Step 3: Check no existing active interview for this respondent
+  // Step 3: Check for existing active interview
   const { data: existing } = await admin
     .from('interviews')
     .select('id')
@@ -42,6 +45,38 @@ export async function POST(req: NextRequest) {
     .eq('status', 'active')
     .maybeSingle()
 
+  // If rejoin requested and active interview exists, generate new token for same room
+  if (existing && rejoin) {
+    const { data: campaign } = await admin
+      .from('campaigns')
+      .select('duration_target_minutes, voice_id')
+      .eq('id', respondent.campaign_id)
+      .single()
+
+    const duration = (campaign?.duration_target_minutes as number) ?? 15
+    const voiceId = (campaign?.voice_id as string) ?? 'voxtral-natalia'
+    const persona = VOICE_PERSONAS.find(p => p.id === voiceId)
+    const personaName = persona?.name ?? 'Natalia'
+
+    const roomName = `interview-${existing.id}`
+    const at = new AccessToken(
+      process.env.LIVEKIT_API_KEY!,
+      process.env.LIVEKIT_API_SECRET!,
+      { identity: respondent.id as string, name: (respondent.name as string) || 'Participante' },
+    )
+    at.addGrant({ roomJoin: true, room: roomName })
+    const livekitToken = await at.toJwt()
+
+    return NextResponse.json({
+      token: livekitToken,
+      roomName,
+      interviewId: existing.id,
+      wsUrl: process.env.LIVEKIT_URL!,
+      campaignInfo: { duration, personaName },
+    })
+  }
+
+  // Not a rejoin — block duplicate sessions
   if (existing) {
     return NextResponse.json({ error: 'already_active' }, { status: 409 })
   }
@@ -78,8 +113,10 @@ export async function POST(req: NextRequest) {
   const roomName = `interview-${interview.id}`
 
   // Create LiveKit room
+  // RoomServiceClient needs HTTPS URL, not WSS
+  const livekitHost = process.env.LIVEKIT_URL!.replace('wss://', 'https://').replace('ws://', 'http://')
   const roomService = new RoomServiceClient(
-    process.env.LIVEKIT_URL!,
+    livekitHost,
     process.env.LIVEKIT_API_KEY!,
     process.env.LIVEKIT_API_SECRET!,
   )
@@ -88,7 +125,7 @@ export async function POST(req: NextRequest) {
   // Start Egress (fire-and-forget per D-23)
   try {
     const egressClient = new EgressClient(
-      process.env.LIVEKIT_URL!,
+      livekitHost,
       process.env.LIVEKIT_API_KEY!,
       process.env.LIVEKIT_API_SECRET!,
     )

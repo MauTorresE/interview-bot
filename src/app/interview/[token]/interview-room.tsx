@@ -3,13 +3,14 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import {
   LiveKitRoom,
-  useAgent,
+  RoomAudioRenderer,
+  useVoiceAssistant,
   useTrackVolume,
-  useDataChannel,
   useLocalParticipant,
   useConnectionState,
+  useRoomContext,
 } from '@livekit/components-react'
-import { ConnectionState, Track, LocalAudioTrack, type DataPublishOptions } from 'livekit-client'
+import { ConnectionState, RoomEvent, type RemoteParticipant, type TranscriptionSegment } from 'livekit-client'
 import { toast } from 'sonner'
 import { Mic, MicOff } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -47,61 +48,115 @@ function InterviewRoomContent({ session, onInterviewEnd }: InterviewRoomProps) {
 
   const targetSeconds = session.campaignInfo.duration * 60
 
+  // Load existing transcript from Supabase on mount (handles rejoin after refresh)
+  useEffect(() => {
+    async function loadTranscript() {
+      try {
+        const res = await fetch(`/api/livekit/transcript?interviewId=${session.interviewId}`)
+        if (res.ok) {
+          const data = await res.json()
+          if (data.entries?.length > 0) {
+            setEntries(data.entries.map((e: { id: string; speaker: string; content: string; elapsed_ms: number }) => ({
+              id: e.id,
+              speaker: e.speaker as 'bot' | 'client',
+              content: e.content,
+              elapsedMs: e.elapsed_ms,
+            })))
+            // Resume elapsed time from last entry
+            const lastMs = data.entries[data.entries.length - 1].elapsed_ms
+            if (lastMs > 0) {
+              setElapsedSeconds(Math.floor(lastMs / 1000))
+            }
+          }
+        }
+      } catch {
+        // Silently fail — fresh interview has no transcript
+      }
+    }
+    loadTranscript()
+  }, [session.interviewId])
+
   // LiveKit hooks
-  const agent = useAgent()
+  const { state: agentState, audioTrack: agentAudioTrack } = useVoiceAssistant()
   const connectionState = useConnectionState()
   const { localParticipant } = useLocalParticipant()
 
   // Agent audio track for volume metering
-  const agentMicTrack = agent.state === 'listening' || agent.state === 'thinking' || agent.state === 'speaking'
-    ? agent.microphoneTrack
-    : undefined
-  const agentVolume = useTrackVolume(agentMicTrack)
+  const agentVolume = useTrackVolume(agentAudioTrack)
 
   // Map agent state to orb state
   const orbState = (() => {
-    const s = agent.state
+    const s = agentState
     if (s === 'listening') return 'listening'
     if (s === 'thinking') return 'thinking'
     if (s === 'speaking') return 'speaking'
     return 'idle'
   })()
 
-  // Data channel for text input (sending)
-  const textChannel = useDataChannel('text-input')
+  // Raw data channel via room context (matches prototype pattern)
+  const room = useRoomContext()
 
-  // Data channel for receiving messages from agent
-  const handleAgentMessage = useCallback(
-    (msg: { payload: Uint8Array }) => {
+  // Listen for LiveKit built-in transcription events (matching prototype pattern)
+  useEffect(() => {
+    function onTranscriptionReceived(
+      segments: TranscriptionSegment[],
+      participant?: RemoteParticipant
+    ) {
+      const isBot = participant?.identity?.startsWith('agent') ||
+        (participant && participant !== room.localParticipant)
+
+      for (const seg of segments) {
+        if (!seg.text?.trim()) continue
+        const speaker: 'bot' | 'client' = isBot ? 'bot' : 'client'
+        const stableId = `${speaker}-${seg.id}`
+
+        setEntries((prev) => {
+          const existingIdx = prev.findIndex((m) => m.id === stableId)
+          if (existingIdx >= 0) {
+            // Update existing segment (interim → final)
+            const updated = [...prev]
+            updated[existingIdx] = { ...updated[existingIdx], content: seg.text }
+            return updated
+          }
+          return [
+            ...prev,
+            {
+              id: stableId,
+              speaker,
+              content: seg.text,
+              elapsedMs: elapsedSeconds * 1000,
+            },
+          ]
+        })
+      }
+    }
+
+    // Data channel for non-transcript messages (phase_change, interview_ended)
+    function onDataReceived(payload: Uint8Array) {
       try {
-        const text = new TextDecoder().decode(msg.payload)
+        const text = new TextDecoder().decode(payload)
         const data = JSON.parse(text)
 
         if (data.type === 'phase_change' && data.phase) {
           setPhase(data.phase as ConversationPhase)
         } else if (data.type === 'interview_ended') {
           onInterviewEnd({
-            duration: data.duration ?? elapsedSeconds,
+            duration: data.duration ?? 0,
             topicsCount: data.topics_count ?? 0,
           })
-        } else if (data.type === 'transcript') {
-          setEntries((prev) => [
-            ...prev,
-            {
-              id: `${Date.now()}-${prev.length}`,
-              speaker: data.speaker === 'bot' ? 'bot' : 'client',
-              content: data.content ?? '',
-              elapsedMs: data.elapsed_ms ?? elapsedSeconds * 1000,
-            },
-          ])
         }
       } catch {
         // Ignore unparseable messages
       }
-    },
-    [elapsedSeconds, onInterviewEnd]
-  )
-  useDataChannel('agent', handleAgentMessage)
+    }
+
+    room.on(RoomEvent.TranscriptionReceived, onTranscriptionReceived)
+    room.on(RoomEvent.DataReceived, onDataReceived)
+    return () => {
+      room.off(RoomEvent.TranscriptionReceived, onTranscriptionReceived)
+      room.off(RoomEvent.DataReceived, onDataReceived)
+    }
+  }, [room, onInterviewEnd, elapsedSeconds])
 
   // Elapsed time counter
   useEffect(() => {
@@ -136,26 +191,17 @@ function InterviewRoomContent({ session, onInterviewEnd }: InterviewRoomProps) {
     const payload = new TextEncoder().encode(
       JSON.stringify({ type: 'text_input', text })
     )
-    textChannel.send(payload, { reliable: true } as DataPublishOptions).catch(() => {
+    room.localParticipant.publishData(payload, { reliable: true }).catch(() => {
       toast.error('No se pudo enviar el mensaje.')
     })
   }
 
-  // Mic toggle
-  function handleMicToggle() {
+  // Mic toggle using LiveKit's standard API
+  async function handleMicToggle() {
     if (!localParticipant) return
-    const micPub = localParticipant
-      .getTrackPublications()
-      .find((pub) => pub.source === Track.Source.Microphone)
-    if (micPub?.track && micPub.track instanceof LocalAudioTrack) {
-      const newMuted = !isMuted
-      if (newMuted) {
-        micPub.track.mute()
-      } else {
-        micPub.track.unmute()
-      }
-      setIsMuted(newMuted)
-    }
+    const newMuted = !isMuted
+    await localParticipant.setMicrophoneEnabled(!newMuted)
+    setIsMuted(newMuted)
   }
 
   // End interview via data channel
@@ -163,7 +209,7 @@ function InterviewRoomContent({ session, onInterviewEnd }: InterviewRoomProps) {
     const payload = new TextEncoder().encode(
       JSON.stringify({ type: 'end_interview' })
     )
-    textChannel.send(payload, { reliable: true } as DataPublishOptions).catch(() => {
+    room.localParticipant.publishData(payload, { reliable: true }).catch(() => {
       // If send fails, still trigger end locally
       onInterviewEnd({ duration: elapsedSeconds, topicsCount: 0 })
     })
@@ -254,6 +300,7 @@ export function InterviewRoom(props: InterviewRoomProps) {
       audio={true}
       className="w-full"
     >
+      <RoomAudioRenderer />
       <InterviewRoomContent {...props} />
     </LiveKitRoom>
   )

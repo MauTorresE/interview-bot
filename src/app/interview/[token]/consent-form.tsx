@@ -67,7 +67,10 @@ export function ConsentForm({ token, tokenType, campaignName, onInterviewReady }
       const res = await fetch('/api/livekit/token', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token }),
+        body: JSON.stringify({
+          token,
+          ...(tokenType === 'campaign' && result.respondentId ? { respondentId: result.respondentId } : {}),
+        }),
       })
 
       if (!res.ok) {
@@ -90,6 +93,7 @@ export function ConsentForm({ token, tokenType, campaignName, onInterviewReady }
           wsUrl: data.wsUrl,
           interviewId: data.interviewId,
           campaignInfo: data.campaignInfo,
+          respondentId: result.respondentId ?? undefined,
         })
       }
     } catch {

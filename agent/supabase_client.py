@@ -9,7 +9,6 @@ import logging
 from dataclasses import dataclass, field
 
 from supabase import create_client, Client
-from supabase.lib.client_options import ClientOptions
 
 logger = logging.getLogger("entrevista-agent")
 
@@ -43,12 +42,16 @@ def get_supabase_client() -> Client | None:
         logger.warning("Supabase credentials not set, data will not be persisted")
         return None
 
-    _client = create_client(
-        url,
-        key,
-        options=ClientOptions(schema="entrevista"),
-    )
+    _client = create_client(url, key)
     return _client
+
+
+def _table(name: str):
+    """Access a table in the entrevista schema."""
+    client = get_supabase_client()
+    if client is None:
+        return None
+    return client.schema("entrevista").table(name)
 
 
 def _fix_encoding(text: str) -> str:
@@ -65,8 +68,7 @@ async def load_interview_config(interview_id: str) -> InterviewConfig:
     Queries interviews JOIN campaigns JOIN research_briefs to get all
     configuration needed for the agent session.
     """
-    client = get_supabase_client()
-    if not client:
+    if not get_supabase_client():
         logger.warning("No Supabase client, returning default config")
         return InterviewConfig(
             interview_id=interview_id,
@@ -88,10 +90,10 @@ async def load_interview_config(interview_id: str) -> InterviewConfig:
     try:
         # Query interview with campaign and respondent data
         interview_result = (
-            client.table("interviews")
+            _table("interviews")
             .select(
                 "id, campaign_id, respondent_id, org_id, "
-                "campaigns(id, name, duration_target, voice_persona, interviewer_style), "
+                "campaigns(id, name, duration_target_minutes, voice_id, interviewer_style), "
                 "respondents(name)"
             )
             .eq("id", interview_id)
@@ -115,23 +117,24 @@ async def load_interview_config(interview_id: str) -> InterviewConfig:
 
         try:
             brief_result = (
-                client.table("research_briefs")
-                .select("goals, data_points, context, tone")
+                _table("research_briefs")
+                .select("brief_data")
                 .eq("campaign_id", campaign_id)
                 .single()
                 .execute()
             )
-            if brief_result.data:
+            if brief_result.data and brief_result.data.get("brief_data"):
+                bd = brief_result.data["brief_data"]
                 brief_data = {
-                    "goals": brief_result.data.get("goals", brief_data["goals"]),
-                    "data_points": brief_result.data.get("data_points", brief_data["data_points"]),
-                    "context": brief_result.data.get("context", brief_data["context"]),
-                    "tone": brief_result.data.get("tone", brief_data["tone"]),
+                    "goals": bd.get("goals", brief_data["goals"]),
+                    "data_points": bd.get("data_points", brief_data["data_points"]),
+                    "context": bd.get("context", brief_data["context"]),
+                    "tone": bd.get("tone", brief_data["tone"]),
                 }
         except Exception as e:
             logger.warning(f"Failed to load research brief for campaign {campaign_id}: {e}")
 
-        duration_target = campaign.get("duration_target", 15)
+        duration_target = campaign.get("duration_target_minutes", 15)
         duration_seconds = duration_target * 60
 
         return InterviewConfig(
@@ -139,7 +142,7 @@ async def load_interview_config(interview_id: str) -> InterviewConfig:
             campaign_id=campaign_id,
             org_id=interview.get("org_id", "unknown"),
             respondent_name=respondent.get("name", "Participante"),
-            voice_persona=campaign.get("voice_persona", "voxtral-natalia"),
+            voice_persona=campaign.get("voice_id", "voxtral-natalia"),
             interviewer_style=campaign.get("interviewer_style", "professional"),
             duration_target_seconds=duration_seconds,
             duration_target_minutes=duration_target,
@@ -174,10 +177,9 @@ async def save_transcript_entry(
 ) -> None:
     """Save a transcript entry to entrevista.transcript_entries."""
     try:
-        client = get_supabase_client()
-        if not client:
+        if not get_supabase_client():
             return
-        client.table("transcript_entries").insert(
+        _table("transcript_entries").insert(
             {
                 "interview_id": interview_id,
                 "speaker": speaker,
@@ -211,11 +213,10 @@ async def update_interview_status(
 ) -> None:
     """Update the interview row with status and optional fields."""
     try:
-        client = get_supabase_client()
-        if not client:
+        if not get_supabase_client():
             return
         update_data = {"status": status, **kwargs}
-        client.table("interviews").update(update_data).eq(
+        _table("interviews").update(update_data).eq(
             "id", interview_id
         ).execute()
     except Exception as e:

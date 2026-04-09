@@ -9,6 +9,7 @@ data channel), and handles text fallback input.
 import asyncio
 import json
 import logging
+import os
 import time
 from datetime import datetime, timezone
 
@@ -45,8 +46,8 @@ logger.setLevel(logging.INFO)
 
 # Voice persona mapping (matches src/lib/constants/campaign.ts)
 VOXTRAL_VOICES = {
-    "voxtral-natalia": "jessica",  # Female Spanish voice
-    "voxtral-diego": "alex",  # Male Spanish voice
+    "voxtral-natalia": "0c1cb9a3-5b28-4918-8e5f-99a268c334e3",  # Cloned Mexican Spanish female (from prototype)
+    "voxtral-diego": "fr_marie_neutral",  # Default Voxtral voice (placeholder until male clone is created)
 }
 ELEVENLABS_VOICES = {
     "elevenlabs-sofia": "pMsXgVXv3BLzUgSXRplE",  # Female Mexican accent
@@ -65,7 +66,10 @@ class EntrevistaAgent(Agent):
         config: InterviewConfig,
         state: InterviewState,
     ):
-        super().__init__(instructions=instructions)
+        super().__init__(
+            instructions=instructions,
+            use_tts_aligned_transcript=False,  # Stream text immediately, matches prototype
+        )
         self._interview_id = interview_id
         self._config = config
         self._state = state
@@ -75,10 +79,6 @@ class EntrevistaAgent(Agent):
 
     async def on_enter(self):
         """Called when the agent joins the session."""
-        # Set up event handlers for transcript persistence + data channel
-        self.session.on("user_turn_completed", self._on_user_turn_completed)
-        self.session.on("conversation_item_added", self._on_conversation_item_added)
-
         # Greet the participant
         name = self._config.respondent_name
         greeting = (
@@ -315,7 +315,7 @@ class EntrevistaAgent(Agent):
             duration=self._config.duration_target_minutes,
             state_context=self._state.time_context,
         )
-        self.instructions = updated
+        self.update_instructions(updated)
 
     def _send_data(self, data: dict):
         """Send JSON data via data channel to all participants."""
@@ -383,7 +383,11 @@ async def entrypoint(ctx: JobContext):
     # Configure the session with STT, LLM, TTS, and VAD
     session = AgentSession(
         stt=deepgram.STT(model="nova-3", language="es-419"),
-        llm=anthropic.LLM(model="claude-sonnet-4-20250514"),
+        llm=anthropic.LLM(
+            model=os.environ.get("LLM_MODEL", "claude-sonnet-4-20250514"),
+            caching="ephemeral",  # Cache system prompt — saves ~90% on repeated turns
+            _strict_tool_schema=False,  # Required — strict tools not supported by all models
+        ),
         tts=tts,
         vad=silero.VAD.load(
             min_speech_duration=0.3,
@@ -415,6 +419,63 @@ async def entrypoint(ctx: JobContext):
             logger.info(f"Interview {interview_id} closed. Duration: {duration}s")
 
     await session.start(agent=agent, room=ctx.room)
+
+    # Save bot speech to transcript when conversation items are added
+    # Registered here (not in on_enter) to match prototype pattern
+    @session.on("conversation_item_added")
+    def on_conversation_item(event):
+        try:
+            item = event.data if hasattr(event, "data") else event
+            if hasattr(item, "role") and hasattr(item, "text_content"):
+                role = str(item.role)
+                text = item.text_content or ""
+                if text.strip() and "assistant" in role.lower():
+                    elapsed_ms = int((time.time() - agent._start_time) * 1000)
+                    asyncio.create_task(
+                        save_transcript_entry(
+                            interview_id, "bot", text.strip(), elapsed_ms
+                        )
+                    )
+                    # Send via data channel for live frontend display
+                    agent._send_data({
+                        "type": "transcript",
+                        "speaker": "bot",
+                        "content": text.strip(),
+                        "elapsed_ms": elapsed_ms,
+                    })
+                    logger.info(f"Bot transcript sent: {text.strip()[:50]}...")
+        except Exception as e:
+            logger.error(f"conversation_item_added handler error: {e}")
+
+    # Save user speech to transcript + send via data channel
+    @session.on("user_turn_completed")
+    def on_user_turn(turn_ctx, new_message=None):
+        try:
+            text = ""
+            if new_message and hasattr(new_message, "text_content"):
+                text = new_message.text_content or ""
+            elif new_message and hasattr(new_message, "content"):
+                text = str(new_message.content) if new_message.content else ""
+
+            if text.strip():
+                elapsed_ms = int((time.time() - agent._start_time) * 1000)
+                asyncio.create_task(
+                    save_transcript_entry(
+                        interview_id, "client", text.strip(), elapsed_ms
+                    )
+                )
+                agent._send_data({
+                    "type": "transcript",
+                    "speaker": "client",
+                    "content": text.strip(),
+                    "elapsed_ms": elapsed_ms,
+                })
+                logger.info(f"Client transcript sent: {text.strip()[:50]}...")
+
+            # Check timing guardrails after every user turn (D-15, D-16)
+            agent._check_timing_guardrails()
+        except Exception as e:
+            logger.error(f"user_turn_completed handler error: {e}")
 
     # Listen for text messages from the data channel (T-03-08: parse in try/catch)
     @ctx.room.on("data_received")
