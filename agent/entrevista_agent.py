@@ -234,6 +234,20 @@ class EntrevistaAgent(Agent):
         return f"Transicion a fase: {next_phase}"
 
     @function_tool()
+    async def extend_interview(
+        self,
+        ctx: RunContext,
+    ) -> str:
+        """Extiende la llamada 5 minutos mas. Llama esta funcion cuando el participante acepte extender el tiempo."""
+        if self._state._extended:
+            return "La llamada ya fue extendida anteriormente. No se puede extender de nuevo."
+        self._state.extend(300)  # +5 min
+        self._update_instructions()
+        new_target_min = self._state.duration_target_seconds // 60
+        logger.info(f"Interview {self._interview_id}: extended to {new_target_min} min")
+        return f"Llamada extendida. Nuevo tiempo total: {new_target_min} minutos."
+
+    @function_tool()
     async def end_interview(
         self,
         ctx: RunContext,
@@ -271,49 +285,45 @@ class EntrevistaAgent(Agent):
     # ── Timing guardrails (D-15, D-16) ─────────────────────────────
 
     def _check_timing_guardrails(self):
-        """Check elapsed time and inject nudge, force-close, or hard-stop as needed."""
+        """Check elapsed time: offer extension → force close → hard stop."""
         if self._state.should_hard_stop and not self._state.ended:
-            # 110% elapsed — HARD STOP. End programmatically, don't rely on LLM.
-            logger.info(
-                f"Interview {self._interview_id}: HARD STOP at "
-                f"{self._state.elapsed_seconds}s / {self._state.duration_target_seconds}s"
-            )
+            # 110% — HARD STOP. No more talking.
+            logger.info(f"Interview {self._interview_id}: HARD STOP at {self._state.elapsed_seconds}s")
             self._state.ended = True
             duration = int(time.time() - self._start_time)
-
-            # Update DB
             asyncio.create_task(
                 update_interview_status(
-                    self._interview_id,
-                    "completed",
+                    self._interview_id, "completed",
                     ended_at=datetime.now(timezone.utc).isoformat(),
-                    duration_seconds=duration,
-                    topics_count=self._state.topics_count,
+                    duration_seconds=duration, topics_count=self._state.topics_count,
                 )
             )
-
-            # Notify frontend
-            self._send_data({
-                "type": "interview_ended",
-                "duration": duration,
-                "topics_count": self._state.topics_count,
-            })
-
-            # Say goodbye and close
+            self._send_data({"type": "interview_ended", "duration": duration, "topics_count": self._state.topics_count})
             self.session.say("Hemos llegado al final de nuestro tiempo. Muchas gracias por tu participacion. La entrevista ha concluido.")
             asyncio.create_task(self.session.aclose())
 
-        elif self._state.should_force_close and self._state.phase != "closing":
-            # 95% elapsed — force transition to closing (D-16)
+        elif self._state.should_force_close:
+            # 100% — Force close. Agent must wrap up NOW.
+            self._state.mark_close_forced()
             self._state.transition_to("closing")
             self._update_instructions()
             self._send_data({"type": "phase_change", "phase": "closing"})
-            logger.info(
-                f"Interview {self._interview_id}: force-close triggered at "
-                f"{self._state.elapsed_seconds}s / {self._state.duration_target_seconds}s"
+            # Tell the agent directly to close
+            self.session.say("Ya llegamos al tiempo establecido. Dejame hacer un breve resumen de lo que platicamos.")
+            logger.info(f"Interview {self._interview_id}: force-close at {self._state.elapsed_seconds}s")
+
+        elif self._state.should_offer_extension:
+            # 90% — Offer extension to the user
+            self._state.mark_extension_offered()
+            self._update_instructions()
+            self.session.say(
+                "Ya casi llegamos al final de nuestro tiempo. "
+                "¿Te gustaria extender la llamada unos minutos mas, o cerramos aqui?"
             )
+            logger.info(f"Interview {self._interview_id}: extension offered at {self._state.elapsed_seconds}s")
+
         elif self._state.should_nudge:
-            # 80% elapsed — nudge to start closing (D-16)
+            # 80% — Nudge to start wrapping up
             self._state.mark_nudged()
             self._update_instructions()
             logger.info(

@@ -111,20 +111,37 @@ function InterviewRoomContent({ session, onInterviewEnd }: InterviewRoomProps) {
         const stableId = `${speaker}-${seg.id}`
 
         setEntries((prev) => {
+          // Check if this exact segment already exists (interim → final update)
           const existingIdx = prev.findIndex((m) => m.id === stableId)
           if (existingIdx >= 0) {
-            // Update existing segment (interim → final)
             const updated = [...prev]
             updated[existingIdx] = { ...updated[existingIdx], content: seg.text }
             return updated
           }
+
+          // Merge with previous entry if same speaker and within 8 seconds
+          const lastEntry = prev[prev.length - 1]
+          const currentMs = elapsedSeconds * 1000
+          if (
+            lastEntry &&
+            lastEntry.speaker === speaker &&
+            Math.abs(currentMs - lastEntry.elapsedMs) < 8000
+          ) {
+            const updated = [...prev]
+            updated[updated.length - 1] = {
+              ...lastEntry,
+              content: lastEntry.content + ' ' + seg.text,
+            }
+            return updated
+          }
+
           return [
             ...prev,
             {
               id: stableId,
               speaker,
               content: seg.text,
-              elapsedMs: elapsedSeconds * 1000,
+              elapsedMs: currentMs,
             },
           ]
         })
@@ -227,15 +244,17 @@ function InterviewRoomContent({ session, onInterviewEnd }: InterviewRoomProps) {
     setIsMuted(newMuted)
   }
 
-  // End interview via data channel
+  // End interview — send to agent + force-end locally after 3s
   function handleEndInterview() {
     const payload = new TextEncoder().encode(
       JSON.stringify({ type: 'end_interview' })
     )
-    room.localParticipant.publishData(payload, { reliable: true }).catch(() => {
-      // If send fails, still trigger end locally
+    room.localParticipant.publishData(payload, { reliable: true }).catch(() => {})
+
+    // Force-end locally after 3 seconds regardless of agent response
+    setTimeout(() => {
       onInterviewEnd({ duration: elapsedSeconds, topicsCount: 0 })
-    })
+    }, 3000)
   }
 
   return (

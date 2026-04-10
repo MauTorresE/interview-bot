@@ -15,6 +15,9 @@ class InterviewState:
         self.topics_count: int = 0
         self.ended: bool = False
         self._nudged: bool = False
+        self._extension_offered: bool = False
+        self._extended: bool = False
+        self._close_forced: bool = False
 
     @property
     def elapsed_seconds(self) -> int:
@@ -49,12 +52,19 @@ class InterviewState:
         elif self.topics_count < ideal_topics and self.elapsed_fraction >= 0.50:
             lines.append(f"NOTA: Para una entrevista balanceada, cubre {ideal_topics} temas. Llevas {self.topics_count}. Considera transicionar al siguiente tema.")
 
-        if self.elapsed_fraction >= 0.95:
-            lines.append("URGENTE: Debes cerrar la entrevista AHORA. Da un resumen breve y despidete.")
+        if self.elapsed_fraction >= 1.0:
+            lines.append("URGENTE: EL TIEMPO HA TERMINADO. Cierra la llamada AHORA con un resumen breve y despidete.")
+        elif self.elapsed_fraction >= 0.90:
+            lines.append("IMPORTANTE: Queda menos de 1 minuto. Pregunta si quieren extender o empieza a cerrar.")
         elif self.elapsed_fraction >= 0.80:
             lines.append("NOTA: Comienza a cerrar el tema actual y prepara el cierre.")
 
         return " ".join(lines)
+
+    @property
+    def should_offer_extension(self) -> bool:
+        """True when 90% of duration elapsed and extension not yet offered."""
+        return self.elapsed_fraction >= 0.90 and not self._extension_offered and not self._extended
 
     @property
     def should_nudge(self) -> bool:
@@ -63,13 +73,29 @@ class InterviewState:
 
     @property
     def should_force_close(self) -> bool:
-        """True when 95% of duration elapsed (D-16)."""
-        return self.elapsed_fraction >= 0.95
+        """True when 100% of duration elapsed — must close now."""
+        return self.elapsed_fraction >= 1.0 and not self._close_forced
 
     @property
     def should_hard_stop(self) -> bool:
         """True when 110% of duration elapsed — no more talking, end now."""
         return self.elapsed_fraction >= 1.10
+
+    def extend(self, extra_seconds: int = 300) -> None:
+        """Extend the interview duration (max once, default 5 min)."""
+        if not self._extended:
+            max_extra = int(self.duration_target_seconds * 0.5)  # Max 50% extension
+            self.duration_target_seconds += min(extra_seconds, max_extra)
+            self._extended = True
+            self._close_forced = False  # Reset so the new deadline triggers fresh
+
+    def mark_extension_offered(self) -> None:
+        """Mark that the extension was offered (only offer once)."""
+        self._extension_offered = True
+
+    def mark_close_forced(self) -> None:
+        """Mark that force close was triggered (only trigger once)."""
+        self._close_forced = True
 
     def transition_to(self, phase: str) -> bool:
         """Transition to a new phase if valid."""
