@@ -53,9 +53,11 @@ class InterviewState:
             lines.append(f"NOTA: Para una entrevista balanceada, cubre {ideal_topics} temas. Llevas {self.topics_count}. Considera transicionar al siguiente tema.")
 
         if self.elapsed_fraction >= 1.0:
-            lines.append("URGENTE: EL TIEMPO HA TERMINADO. Cierra la llamada AHORA con un resumen breve y despidete.")
-        elif self.elapsed_fraction >= 0.90:
-            lines.append("IMPORTANTE: Queda menos de 1 minuto. Pregunta si quieren extender o empieza a cerrar.")
+            lines.append("URGENTE: EL TIEMPO HA TERMINADO. Cierra la llamada AHORA. Da un resumen breve de lo que hablaron, agradece al participante, menciona que el equipo preparara una propuesta, y despidete calidamente. Usa la funcion end_interview cuando termines.")
+        elif self.elapsed_fraction >= 0.90 and not self._extended:
+            lines.append("IMPORTANTE: Queda menos de 1 minuto. En tu proxima respuesta, pregunta naturalmente si quieren extender la llamada unos minutos mas o si cerramos aqui.")
+        elif self.elapsed_fraction >= 0.90 and self._extended:
+            lines.append("IMPORTANTE: La llamada ya fue extendida y queda menos de 1 minuto. Empieza a cerrar — resume, agradece, y despidete.")
         elif self.elapsed_fraction >= 0.80:
             lines.append("NOTA: Comienza a cerrar el tema actual y prepara el cierre.")
 
@@ -78,8 +80,13 @@ class InterviewState:
 
     @property
     def should_hard_stop(self) -> bool:
-        """True when 110% of duration elapsed — no more talking, end now."""
+        """True when 110% of duration elapsed — polite canned goodbye."""
         return self.elapsed_fraction >= 1.10
+
+    @property
+    def should_absolute_kill(self) -> bool:
+        """True when 120% of duration elapsed — silent session kill, last resort."""
+        return self.elapsed_fraction >= 1.20
 
     def extend(self, extra_seconds: int = 300) -> None:
         """Extend the interview duration (max once, default 5 min)."""

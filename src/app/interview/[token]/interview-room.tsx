@@ -125,7 +125,7 @@ function InterviewRoomContent({ session, onInterviewEnd }: InterviewRoomProps) {
           if (
             lastEntry &&
             lastEntry.speaker === speaker &&
-            Math.abs(currentMs - lastEntry.elapsedMs) < 8000
+            Math.abs(currentMs - lastEntry.elapsedMs) < 12000
           ) {
             const updated = [...prev]
             updated[updated.length - 1] = {

@@ -105,6 +105,17 @@ class EntrevistaAgent(Agent):
             f"Interview started: {self._interview_id} with {self._config.respondent_name}"
         )
 
+        # Start background timing loop — checks guardrails every 10s
+        # even when agent is mid-speech (fixes Bug 1: guardrails only on user turns)
+        asyncio.create_task(self._timing_loop())
+
+    async def _timing_loop(self):
+        """Background task: check timing guardrails every 10 seconds."""
+        while not self._state.ended:
+            await asyncio.sleep(10)
+            if not self._state.ended:
+                self._check_timing_guardrails()
+
     async def on_user_turn_completed(self, turn_ctx, new_message=None):
         """Override Agent method — save user transcript to Supabase (matches prototype pattern)."""
         text = ""
@@ -285,12 +296,28 @@ class EntrevistaAgent(Agent):
     # ── Timing guardrails (D-15, D-16) ─────────────────────────────
 
     def _check_timing_guardrails(self):
-        """Check elapsed time: offer extension → force close → hard stop."""
-        if self._state.should_hard_stop and not self._state.ended:
-            # 110% — HARD STOP. No more talking.
+        """Tiered timing: nudge → extension → force close → hard stop → kill.
+
+        NO session.say() at 80/90/100% — only system prompt updates.
+        The LLM incorporates timing naturally in its next response.
+        session.say() only at 110% as last resort.
+        """
+        if self._state.should_absolute_kill and not self._state.ended:
+            # 120% — SILENT KILL. Should never reach here.
+            logger.warning(f"Interview {self._interview_id}: ABSOLUTE KILL at {self._state.elapsed_seconds}s")
+            self._state.ended = True
+            try:
+                asyncio.create_task(self.session.aclose())
+            except Exception:
+                pass
+
+        elif self._state.should_hard_stop and not self._state.ended:
+            # 110% — Polite canned goodbye. LLM failed to close in time.
             logger.info(f"Interview {self._interview_id}: HARD STOP at {self._state.elapsed_seconds}s")
             self._state.ended = True
             duration = int(time.time() - self._start_time)
+
+            # Update DB FIRST
             asyncio.create_task(
                 update_interview_status(
                     self._interview_id, "completed",
@@ -298,38 +325,44 @@ class EntrevistaAgent(Agent):
                     duration_seconds=duration, topics_count=self._state.topics_count,
                 )
             )
+
+            # Send interview_ended to frontend BEFORE aclose
             self._send_data({"type": "interview_ended", "duration": duration, "topics_count": self._state.topics_count})
-            self.session.say("Hemos llegado al final de nuestro tiempo. Muchas gracias por tu participacion. La entrevista ha concluido.")
-            asyncio.create_task(self.session.aclose())
+
+            # Polite canned goodbye — only if not currently speaking
+            self.session.say(
+                "Muchas gracias por tu tiempo. Ha sido una conversacion muy valiosa. "
+                "Con toda esta informacion, el equipo preparara una propuesta personalizada para ti. "
+                "Que tengas excelente dia!"
+            )
+            # Close after a brief delay to let the goodbye play
+            async def _delayed_close():
+                await asyncio.sleep(8)
+                try:
+                    await self.session.aclose()
+                except Exception:
+                    pass
+            asyncio.create_task(_delayed_close())
 
         elif self._state.should_force_close:
-            # 100% — Force close. Agent must wrap up NOW.
+            # 100% — Time's up. LLM must close now (has until 110% to finish).
             self._state.mark_close_forced()
             self._state.transition_to("closing")
-            self._update_instructions()
+            self._update_instructions()  # Prompt now says "URGENTE: CLOSE NOW"
             self._send_data({"type": "phase_change", "phase": "closing"})
-            # Tell the agent directly to close
-            self.session.say("Ya llegamos al tiempo establecido. Dejame hacer un breve resumen de lo que platicamos.")
             logger.info(f"Interview {self._interview_id}: force-close at {self._state.elapsed_seconds}s")
 
         elif self._state.should_offer_extension:
-            # 90% — Offer extension to the user
+            # 90% — System prompt tells LLM to ask about extension in next response.
             self._state.mark_extension_offered()
-            self._update_instructions()
-            self.session.say(
-                "Ya casi llegamos al final de nuestro tiempo. "
-                "¿Te gustaria extender la llamada unos minutos mas, o cerramos aqui?"
-            )
-            logger.info(f"Interview {self._interview_id}: extension offered at {self._state.elapsed_seconds}s")
+            self._update_instructions()  # Prompt now says "ask about extension"
+            logger.info(f"Interview {self._interview_id}: extension offer prompted at {self._state.elapsed_seconds}s")
 
         elif self._state.should_nudge:
-            # 80% — Nudge to start wrapping up
+            # 80% — System prompt tells LLM to start wrapping up.
             self._state.mark_nudged()
-            self._update_instructions()
-            logger.info(
-                f"Interview {self._interview_id}: nudge triggered at "
-                f"{self._state.elapsed_seconds}s / {self._state.duration_target_seconds}s"
-            )
+            self._update_instructions()  # Prompt now says "start closing"
+            logger.info(f"Interview {self._interview_id}: nudge at {self._state.elapsed_seconds}s")
 
     # ── Helpers ──────────────────────────────────────────────────────
 
@@ -347,7 +380,8 @@ class EntrevistaAgent(Agent):
     def _send_data(self, data: dict):
         """Send JSON data via data channel to all participants. Retries once on failure."""
         async def _publish():
-            if not (self.session and self.session.room):
+            if not (self.session and hasattr(self.session, 'room') and self.session.room):
+                logger.debug("_send_data: no session/room available, skipping")
                 return
             payload = json.dumps(data).encode()
             try:
