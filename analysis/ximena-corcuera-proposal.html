@@ -1,0 +1,545 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Propuesta - Ximena Corcuera | Not So Soft(ware)</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600&display=swap');
+
+  :root {
+    --bg: #0a0a0f;
+    --surface: #12121a;
+    --surface-2: #1a1a28;
+    --border: #2a2a3a;
+    --text: #e4e4ef;
+    --text-dim: #8888a0;
+    --accent: #8b5cf6;
+    --accent-dim: rgba(139, 92, 246, 0.15);
+    --green: #22c55e;
+    --green-dim: rgba(34, 197, 94, 0.12);
+    --red: #f87171;
+    --red-dim: rgba(248, 113, 113, 0.12);
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: 'Inter', sans-serif;
+    color: var(--text);
+    line-height: 1.65;
+    background: var(--bg);
+    max-width: 820px;
+    margin: 0 auto;
+    padding: 0;
+  }
+
+  .cover {
+    min-height: 100vh; display: flex; flex-direction: column;
+    justify-content: center; padding: 60px 24px;
+    position: relative; page-break-after: always;
+  }
+  .cover::before {
+    content: ''; position: absolute; top: 0; right: 0;
+    width: 300px; height: 300px;
+    background: radial-gradient(circle, var(--accent-dim) 0%, transparent 70%);
+    opacity: 0.5;
+  }
+  .nss-logo {
+    font-family: 'Space Grotesk', sans-serif; font-weight: 700;
+    font-size: 18px; color: var(--text-dim); letter-spacing: 2px;
+    text-transform: uppercase; margin-bottom: 80px;
+  }
+  .nss-logo span { color: var(--accent); }
+  .cover h1 {
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: clamp(28px, 6vw, 42px); font-weight: 700;
+    color: #fff; line-height: 1.15; margin-bottom: 16px;
+  }
+  .cover .tagline {
+    font-size: clamp(16px, 4vw, 20px); color: var(--accent);
+    font-weight: 400; margin-bottom: 48px;
+  }
+  .cover-meta { font-size: 14px; color: var(--text-dim); line-height: 2.2; }
+  .cover-meta strong { color: var(--text); font-weight: 500; }
+
+  .section { padding: 48px 24px; border-top: 1px solid var(--border); }
+  .section-num {
+    font-family: 'Space Grotesk', sans-serif; font-size: 13px;
+    color: var(--accent); font-weight: 600; letter-spacing: 3px;
+    text-transform: uppercase; margin-bottom: 8px;
+  }
+  h2 {
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: clamp(22px, 5vw, 28px); font-weight: 700;
+    color: #fff; margin-bottom: 24px; line-height: 1.2;
+  }
+  h3 {
+    font-family: 'Space Grotesk', sans-serif; font-size: 18px;
+    font-weight: 600; color: #fff; margin: 28px 0 12px;
+  }
+  p { margin-bottom: 14px; font-size: 15px; color: var(--text-dim); }
+  p strong { color: var(--text); }
+
+  .highlight {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 12px; padding: 20px; margin: 20px 0;
+  }
+  .highlight p { margin-bottom: 8px; }
+  .highlight p:last-child { margin-bottom: 0; }
+
+  table { width: 100%; border-collapse: collapse; margin: 20px 0; font-size: 14px; }
+  th {
+    text-align: left; padding: 12px 14px; font-weight: 600;
+    color: var(--text-dim); font-size: 12px; text-transform: uppercase;
+    letter-spacing: 1px; border-bottom: 1px solid var(--border);
+  }
+  td { padding: 12px 14px; border-bottom: 1px solid var(--border); color: var(--text); }
+  tr:last-child td { border-bottom: none; }
+
+  .pain {
+    background: var(--red-dim); border-left: 3px solid var(--red);
+    padding: 14px 18px; margin: 10px 0; border-radius: 0 8px 8px 0;
+  }
+  .pain strong { color: var(--red); font-size: 14px; }
+  .pain p { font-size: 14px; margin: 4px 0 0; }
+
+  .opp {
+    background: var(--green-dim); border-left: 3px solid var(--green);
+    padding: 14px 18px; margin: 10px 0; border-radius: 0 8px 8px 0;
+  }
+  .opp strong { color: var(--green); font-size: 14px; }
+  .opp p { font-size: 14px; margin: 4px 0 0; }
+
+  .phase {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 12px; padding: 24px; margin: 20px 0;
+    position: relative; overflow: hidden;
+  }
+  .phase.featured { border-color: var(--accent); }
+  .phase.featured::before {
+    content: 'RECOMENDADA'; position: absolute; top: 0; right: 0;
+    background: var(--accent); color: #fff; font-size: 10px;
+    font-weight: 700; letter-spacing: 1px; padding: 4px 14px;
+    border-radius: 0 12px 0 8px;
+  }
+  .phase-header {
+    display: flex; justify-content: space-between;
+    align-items: flex-start; margin-bottom: 16px;
+    flex-wrap: wrap; gap: 12px;
+  }
+  .phase-tag {
+    font-family: 'Space Grotesk', sans-serif; font-size: 11px;
+    font-weight: 700; color: var(--accent); letter-spacing: 2px;
+    text-transform: uppercase;
+  }
+  .phase-price {
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: clamp(18px, 4vw, 22px); font-weight: 700; color: #fff;
+  }
+  .phase-price small { font-size: 13px; color: var(--text-dim); font-weight: 400; }
+  .phase h3 { margin-top: 0; }
+
+  ul { margin: 8px 0 16px 0; list-style: none; }
+  li {
+    font-size: 14px; color: var(--text-dim);
+    padding: 4px 0 4px 20px; position: relative;
+  }
+  li::before { content: '\2192'; position: absolute; left: 0; color: var(--accent); }
+
+  .flow {
+    background: var(--surface-2); border-radius: 8px;
+    padding: 18px 20px; margin: 16px 0;
+    font-family: 'Space Grotesk', monospace;
+    font-size: 13px; line-height: 2; color: var(--text-dim); overflow-x: auto;
+  }
+  .flow strong { color: var(--accent); }
+
+  .total-box {
+    background: var(--accent-dim); border: 2px solid var(--accent);
+    border-radius: 12px; padding: 28px; margin: 24px 0; text-align: center;
+  }
+  .total-box .price {
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: clamp(24px, 6vw, 36px); font-weight: 700; color: #fff;
+  }
+  .total-box .price small { font-size: 16px; color: var(--text-dim); }
+  .total-box p { color: var(--text-dim); margin-top: 8px; }
+
+  .guarantee {
+    background: var(--surface); border: 1px solid var(--green);
+    border-radius: 12px; padding: 20px; margin: 20px 0; text-align: center;
+  }
+  .guarantee strong { color: var(--green); }
+
+  .estimate-note {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 8px; padding: 14px 18px; margin: 16px 0;
+    font-size: 13px; color: var(--text-dim); font-style: italic;
+  }
+
+  .cta {
+    text-align: center; padding: 48px 24px;
+    border-top: 1px solid var(--border);
+  }
+  .cta h2 { margin-bottom: 12px; }
+  .cta-buttons { display: flex; flex-direction: column; gap: 12px; align-items: center; margin-top: 20px; }
+  .cta-btn {
+    display: inline-block; color: #fff; padding: 14px 32px; border-radius: 8px;
+    font-family: 'Space Grotesk', sans-serif; font-weight: 600; font-size: 16px;
+    text-decoration: none; width: 100%; max-width: 320px; text-align: center;
+  }
+  .cta-btn.primary { background: #25D366; }
+  .cta-btn.secondary { background: var(--accent); }
+
+  .footer {
+    text-align: center; padding: 24px; font-size: 12px;
+    color: var(--text-dim); border-top: 1px solid var(--border);
+  }
+
+  .opp-to-phase {
+    display: inline-block; background: var(--accent-dim); color: var(--accent);
+    font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 4px;
+    margin-left: 4px;
+  }
+
+  @media (min-width: 640px) {
+    .cover, .section, .cta { padding-left: 48px; padding-right: 48px; }
+    .cta-buttons { flex-direction: row; justify-content: center; }
+    .cta-btn { width: auto; }
+  }
+
+  @media print {
+    body { padding: 0; background: var(--bg); -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .cover { page-break-after: always; }
+    .section { padding-top: 32px; padding-bottom: 32px; }
+    .pain, .opp, .phase, .highlight, .guarantee, .total-box, .estimate-note, .flow {
+      page-break-inside: avoid;
+    }
+    table { page-break-inside: avoid; }
+    h2, h3, .section-num { page-break-after: avoid; }
+    .phase { margin: 14px 0; }
+    .pain, .opp { margin: 6px 0; }
+  }
+</style>
+</head>
+<body>
+
+<!-- COVER -->
+<div class="cover">
+  <div class="nss-logo">Not So <span>Soft(ware)</span></div>
+  <h1>Propuesta de<br>Mejora Tecnol&oacute;gica</h1>
+  <div class="tagline">Ximena Corcuera &mdash; Moda &times; Arte &times; Activismo</div>
+  <div class="cover-meta">
+    <strong>Preparado para:</strong> Ximena Corcuera, Fundadora y Directora General<br>
+    <strong>Fecha:</strong> Abril 2026<br>
+    <strong>Basado en:</strong> 2 llamadas de descubrimiento (22 min totales)<br>
+    <strong>Validez:</strong> 30 d&iacute;as
+  </div>
+</div>
+
+<!-- 01 RESUMEN -->
+<div class="section">
+  <div class="section-num">01 &mdash; Resumen</div>
+  <h2>Lo que encontramos</h2>
+  <div class="highlight">
+    <p><strong>Tu marca opera con 2 personas + colaboradores externos, 6 puntos de venta, y fabricaci&oacute;n distribuida en 3 estados de M&eacute;xico.</strong></p>
+    <p>Los principales retos est&aacute;n en la <strong>gesti&oacute;n manual de proveedores</strong> (100% WhatsApp/tel&eacute;fono), la <strong>falta de visibilidad de inventarios en tiempo real</strong>, y la <strong>ausencia de datos del consumidor final</strong> por operar en consignaci&oacute;n.</p>
+    <p>Con soluciones tecnol&oacute;gicas puntuales, Eli puede liberar hasta el 50% de su tiempo de seguimiento manual, y el equipo puede tomar decisiones de producto y reabasto basadas en datos reales &mdash; no en intuici&oacute;n.</p>
+  </div>
+</div>
+
+<!-- 02 PERFIL -->
+<div class="section">
+  <div class="section-num">02 &mdash; Tu Negocio Hoy</div>
+  <h2>Perfil Operativo</h2>
+  <table>
+    <tr><td><strong>Equipo base</strong></td><td>2 personas + 10-15 colaboradores externos por proyecto</td></tr>
+    <tr><td><strong>Fabricantes</strong></td><td>4 proveedores activos (CDMX, Puebla, Guadalajara)</td></tr>
+    <tr><td><strong>Puntos de venta f&iacute;sicos</strong></td><td>4 concept stores en consignaci&oacute;n (Monterrey, CDMX, Oaxaca)</td></tr>
+    <tr><td><strong>Venta digital</strong></td><td>P&aacute;gina web propia + ecommerce USA (~5% de ingresos)</td></tr>
+    <tr><td><strong>Productos por colecci&oacute;n</strong></td><td>~30 modelos</td></tr>
+    <tr><td><strong>Ciclo de colecci&oacute;n</strong></td><td>6 meses + drops trimestrales</td></tr>
+    <tr><td><strong>Expansi&oacute;n planeada</strong></td><td>Wholesale en Nueva York</td></tr>
+  </table>
+
+  <h3>Flujo de operaci&oacute;n actual</h3>
+  <div class="flow">
+    <strong>Investigaci&oacute;n</strong> (causa social) &rarr; <strong>Dise&ntilde;o</strong> (colecci&oacute;n exclusiva) &rarr; <strong>Pir&aacute;mide de producto</strong><br>
+    &rarr; <strong>Prototipado</strong> (taller CDMX) &rarr; <strong>Escalado + materiales</strong> (proveedores en 3 estados)<br>
+    &rarr; <strong>Fabricaci&oacute;n</strong> (maquilas externas) &rarr; <strong>Fotograf&iacute;a</strong> &rarr; <strong>Distribuci&oacute;n</strong><br>
+    &rarr; <strong>Lanzamiento</strong> (expo/desfile + campa&ntilde;a) &rarr; <strong>Drops trimestrales</strong>
+  </div>
+
+  <h3>Gesti&oacute;n de proveedores y fabricantes</h3>
+  <p>La comunicaci&oacute;n con proveedores y maquilas es <strong>100% informal</strong>: WhatsApp, tel&eacute;fono, visitas presenciales. Eli centraliza la mayor parte de esta gesti&oacute;n. Los pedidos de reinventario se hacen v&iacute;a WhatsApp una vez que se conocen c&oacute;digos y precios. Las f&aacute;bricas en otros estados se gestionan por videollamada. Una gestora intermedia en Guadalajara.</p>
+  <p>Los proveedores y maquilas en M&eacute;xico operan de manera informal &mdash; <strong>hay una brecha tecnol&oacute;gica real</strong>. No usan sistemas digitales. El correo solo se usa para enviar archivos en alta definici&oacute;n. Cualquier soluci&oacute;n tecnol&oacute;gica debe ser simple y adaptarse a esta realidad (WhatsApp-first, no un ERP complejo).</p>
+
+  <h3>Control de inventario y ventas</h3>
+  <p>Inventarios se actualizan <strong>solo mensualmente</strong> con cortes de venta de los puntos de consignaci&oacute;n. No hay visibilidad en tiempo real de stock ni de datos del consumidor final. La p&aacute;gina web tiene registro propio de inventario, pero los puntos f&iacute;sicos (95% de ingresos) operan sin datos.</p>
+</div>
+
+<!-- 03 FRICCIONES -->
+<div class="section">
+  <div class="section-num">03 &mdash; Fricciones Detectadas</div>
+  <h2>D&oacute;nde se pierde tiempo y dinero</h2>
+
+  <div class="pain">
+    <strong>P1 &mdash; Gesti&oacute;n de proveedores 100% manual e informal</strong>
+    <p>Todo se maneja por WhatsApp, tel&eacute;fono y visitas. Sin trazabilidad de pedidos, cotizaciones ni historial. Eli dedica la mayor parte de su d&iacute;a a monitorear y perseguir entregas.</p>
+  </div>
+
+  <div class="pain">
+    <strong>P2 &mdash; Inventarios desactualizados</strong>
+    <p>Stock de los 4 puntos de venta solo se actualiza mensualmente. Imposible saber cu&aacute;ntas piezas hay en cada tienda ahora mismo. No se pueden tomar decisiones &aacute;giles de reabasto.</p>
+  </div>
+
+  <div class="pain">
+    <strong>P3 &mdash; Cero datos del consumidor final</strong>
+    <p>El modelo de consignaci&oacute;n impide acceder a datos de qui&eacute;n compra, cu&aacute;ndo y qu&eacute;. No conocen al buyer persona real. Limita la optimizaci&oacute;n del mix de producto.</p>
+  </div>
+
+  <div class="pain">
+    <strong>P4 &mdash; Seguimiento de producci&oacute;n desgastante</strong>
+    <p>&Oacute;rdenes de producci&oacute;n monitoreadas por WhatsApp. Entregas se retrasan frecuentemente por situaciones personales de los maquileros. Hay que reagendar, segmentar y perseguir constantemente.</p>
+  </div>
+
+  <div class="pain">
+    <strong>P5 &mdash; Brecha tecnol&oacute;gica con proveedores</strong>
+    <p>Los proveedores y maquilas operan de manera informal. No usan sistemas digitales. Esto dificulta cualquier intento de estandarizaci&oacute;n. La soluci&oacute;n debe ser WhatsApp-first, no un sistema complejo.</p>
+  </div>
+
+  <div class="pain">
+    <strong>P6 &mdash; 6 meses de colecci&oacute;n sin herramienta de gesti&oacute;n</strong>
+    <p>El ciclo completo se gestiona sin ninguna herramienta de proyecto. No hay visibilidad de en qu&eacute; etapa est&aacute; cada producto, qu&eacute; falta, o d&oacute;nde hay retrasos.</p>
+  </div>
+</div>
+
+<!-- 04 OPORTUNIDADES -->
+<div class="section">
+  <div class="section-num">04 &mdash; Oportunidades Detectadas</div>
+  <h2>Lo que la tecnolog&iacute;a puede resolver</h2>
+  <p>Cada oportunidad est&aacute; vinculada a una fricci&oacute;n espec&iacute;fica y a la fase de implementaci&oacute;n que la resuelve.</p>
+
+  <div class="opp">
+    <strong>O1 &mdash; Sistema de seguimiento de producci&oacute;n</strong> <span class="opp-to-phase">Fase 1</span>
+    <p>Dashboard simple para rastrear &oacute;rdenes: estado (cotizado &rarr; en producci&oacute;n &rarr; entregado), fechas, proveedor, alertas autom&aacute;ticas. Reduce el monitoreo manual de Eli en ~50%. <em>Resuelve P1, P4.</em></p>
+  </div>
+
+  <div class="opp">
+    <strong>O2 &mdash; CRM de proveedores y maquilas</strong> <span class="opp-to-phase">Fase 1</span>
+    <p>Base de datos centralizada: contactos, productos, precios, historial de pedidos. Elimina la dependencia de conversaciones de WhatsApp para obtener informaci&oacute;n. <em>Resuelve P1, P5.</em></p>
+  </div>
+
+  <div class="opp">
+    <strong>O3 &mdash; Automatizaci&oacute;n de comunicaci&oacute;n v&iacute;a WhatsApp</strong> <span class="opp-to-phase">Fase 1</span>
+    <p>Notificaciones autom&aacute;ticas a proveedores: confirmaciones de pedido, recordatorios de entrega, solicitudes de estatus. Se integra con WhatsApp para no cambiar el canal que ya usan. <em>Resuelve P4, P5.</em></p>
+  </div>
+
+  <div class="opp">
+    <strong>O4 &mdash; Inventario en tiempo real</strong> <span class="opp-to-phase">Fase 2</span>
+    <p>Sistema donde los puntos de venta reportan ventas (formulario semanal). Consolida inventario de todos los canales en un solo dashboard. <em>Resuelve P2.</em></p>
+  </div>
+
+  <div class="opp">
+    <strong>O5 &mdash; Analytics de ventas y buyer persona</strong> <span class="opp-to-phase">Fase 2</span>
+    <p>Dashboard que consolide ventas web + f&iacute;sicas. Identifique productos m&aacute;s vendidos, tendencias por punto de venta, ticket promedio. Base para conocer al buyer persona. <em>Resuelve P3.</em></p>
+  </div>
+
+  <div class="opp">
+    <strong>O6 &mdash; Gesti&oacute;n del ciclo de colecci&oacute;n</strong> <span class="opp-to-phase">Fase 3</span>
+    <p>Vista Kanban o timeline del ciclo de 6 meses. Cada prenda como &ldquo;tarea&rdquo; con estados, responsables y fechas. Calendario de drops integrado. <em>Resuelve P6.</em></p>
+  </div>
+</div>
+
+<!-- 05 PROPUESTA -->
+<div class="section">
+  <div class="section-num">05 &mdash; Propuesta</div>
+  <h2>Soluci&oacute;n en 3 fases</h2>
+  <p>Cada fase entrega valor por s&iacute; sola. Puedes empezar con la Fase 1 y decidir si contin&uacute;as. Sin compromisos a largo plazo.</p>
+
+  <div class="estimate-note">
+    &#9432; Los precios son estimados iniciales basados en la informaci&oacute;n recopilada. El alcance y presupuesto final se definen juntos en una llamada de profundizaci&oacute;n, ajust&aacute;ndonos a tus prioridades y presupuesto.
+  </div>
+
+  <div class="phase featured">
+    <div class="phase-header">
+      <div>
+        <div class="phase-tag">Fase 1 &mdash; Inicio r&aacute;pido</div>
+        <h3>Gesti&oacute;n de Producci&oacute;n + Proveedores</h3>
+      </div>
+      <div class="phase-price">$15,000 - $25,000 <small>MXN</small></div>
+    </div>
+    <p>El impacto m&aacute;s inmediato: reducir la carga operativa de Eli y tener trazabilidad de todas las &oacute;rdenes. <strong>Resuelve O1, O2, O3.</strong></p>
+    <ul>
+      <li>Dashboard de seguimiento de &oacute;rdenes (estado, fechas, alertas)</li>
+      <li>Base de datos de proveedores con historial de pedidos</li>
+      <li>Notificaciones autom&aacute;ticas por WhatsApp (recordatorios de entrega)</li>
+      <li>Vista m&oacute;vil para consultar estatus desde cualquier lugar</li>
+    </ul>
+    <table>
+      <tr><th>Entregable</th><th>Tiempo estimado</th></tr>
+      <tr><td>Dashboard de producci&oacute;n</td><td>3-5 d&iacute;as</td></tr>
+      <tr><td>CRM de proveedores</td><td>2-3 d&iacute;as</td></tr>
+      <tr><td>Integraci&oacute;n WhatsApp</td><td>2 d&iacute;as</td></tr>
+      <tr><td><strong>Total Fase 1</strong></td><td><strong>7-10 d&iacute;as h&aacute;biles</strong></td></tr>
+    </table>
+    <p><strong>Impacto:</strong> Eli libera ~50% de su tiempo. Trazabilidad completa de &oacute;rdenes. Menos retrasos.</p>
+  </div>
+
+  <div class="phase">
+    <div class="phase-header">
+      <div>
+        <div class="phase-tag">Fase 2</div>
+        <h3>Inventarios + Ventas en Tiempo Real</h3>
+      </div>
+      <div class="phase-price">$15,000 - $25,000 <small>MXN</small></div>
+    </div>
+    <p>Visibilidad real del negocio: qu&eacute; se vende, d&oacute;nde, y cu&aacute;nto hay en stock. <strong>Resuelve O4, O5.</strong></p>
+    <ul>
+      <li>Sistema de inventario consolidado (web + 4 puntos f&iacute;sicos)</li>
+      <li>Formulario simple para que tiendas reporten ventas semanales</li>
+      <li>Dashboard de ventas: por canal, producto, tendencias</li>
+      <li>Analytics b&aacute;sico de comportamiento de compra</li>
+    </ul>
+    <table>
+      <tr><th>Entregable</th><th>Tiempo estimado</th></tr>
+      <tr><td>Inventario multi-canal</td><td>3-5 d&iacute;as</td></tr>
+      <tr><td>Dashboard de ventas</td><td>2-3 d&iacute;as</td></tr>
+      <tr><td>Sistema de reporteo</td><td>1-2 d&iacute;as</td></tr>
+      <tr><td><strong>Total Fase 2</strong></td><td><strong>7-10 d&iacute;as h&aacute;biles</strong></td></tr>
+    </table>
+    <p><strong>Impacto:</strong> Decisiones de reabasto y mix de producto basadas en datos. Preparaci&oacute;n para escalar.</p>
+  </div>
+
+  <div class="phase">
+    <div class="phase-header">
+      <div>
+        <div class="phase-tag">Fase 3</div>
+        <h3>Gesti&oacute;n de Colecci&oacute;n + Wholesale USA</h3>
+      </div>
+      <div class="phase-price">$20,000 - $35,000 <small>MXN</small></div>
+    </div>
+    <p>El sistema completo para gestionar el ciclo de 6 meses y preparar la expansi&oacute;n a Estados Unidos. <strong>Resuelve O6.</strong></p>
+    <ul>
+      <li>Kanban/timeline del ciclo completo de colecci&oacute;n</li>
+      <li>Calendario de drops con tareas automatizadas</li>
+      <li>M&oacute;dulo de wholesale (pedidos, env&iacute;os, facturaci&oacute;n b&aacute;sica)</li>
+      <li>Portal para buyers internacionales</li>
+    </ul>
+    <table>
+      <tr><th>Entregable</th><th>Tiempo estimado</th></tr>
+      <tr><td>Sistema de gesti&oacute;n de colecci&oacute;n</td><td>5-7 d&iacute;as</td></tr>
+      <tr><td>M&oacute;dulo wholesale USA</td><td>3-5 d&iacute;as</td></tr>
+      <tr><td><strong>Total Fase 3</strong></td><td><strong>8-12 d&iacute;as h&aacute;biles</strong></td></tr>
+    </table>
+    <p><strong>Impacto:</strong> Pipeline visible. Equipo alineado. Estructura para crecer en USA.</p>
+  </div>
+</div>
+
+<!-- 06 INVERSI&Oacute;N -->
+<div class="section">
+  <div class="section-num">06 &mdash; Inversi&oacute;n</div>
+  <h2>Resumen de inversi&oacute;n</h2>
+
+  <table>
+    <tr><th>Fase</th><th>Entrega</th><th>Inversi&oacute;n estimada</th></tr>
+    <tr><td><strong>Fase 1:</strong> Producci&oacute;n + Proveedores</td><td>7-10 d&iacute;as</td><td>$15,000 - $25,000 MXN</td></tr>
+    <tr><td><strong>Fase 2:</strong> Inventarios + Ventas</td><td>7-10 d&iacute;as</td><td>$15,000 - $25,000 MXN</td></tr>
+    <tr><td><strong>Fase 3:</strong> Colecci&oacute;n + USA</td><td>8-12 d&iacute;as</td><td>$20,000 - $35,000 MXN</td></tr>
+  </table>
+
+  <div class="total-box">
+    <div class="price">$40,000 - $70,000 <small>MXN</small></div>
+    <p>Paquete completo &mdash; entrega estimada en ~6-8 semanas</p>
+    <p style="margin-top:12px; color: var(--accent);"><strong>Descuento por paquete completo: hasta 15% sobre el total</strong></p>
+  </div>
+
+  <div class="estimate-note">
+    &#9432; Estos son rangos estimados. El presupuesto final se define despu&eacute;s de la llamada de profundizaci&oacute;n donde afinamos alcance, prioridades y presupuesto disponible. Nos ajustamos a ti.
+  </div>
+
+  <p><strong>Forma de pago:</strong> 30% al inicio de cada fase, 40% a mitad de avance, 30% al entregar. Sin pagos mensuales ni recurrentes.</p>
+  <p><strong>Acceso completo:</strong> Tu plataforma, tus datos, tus cuentas. Licencia de uso permanente sin pagos recurrentes. Puedes modificarlo con cualquier desarrollador. Sin dependencia.</p>
+
+  <div class="guarantee">
+    <p><strong>Garant&iacute;a de satisfacci&oacute;n:</strong> Si al final de la Fase 1 no ves valor, no continuamos y no hay compromiso por las fases siguientes. Empieza con lo m&iacute;nimo y crece solo si tiene sentido.</p>
+  </div>
+</div>
+
+<!-- 07 TIMELINE -->
+<div class="section">
+  <div class="section-num">07 &mdash; Timeline</div>
+  <h2>C&oacute;mo ser&iacute;a el proceso</h2>
+
+  <table>
+    <tr><th style="width:40px"></th><th>Qu&eacute; pasa</th><th>Cu&aacute;ndo</th></tr>
+    <tr><td><strong>1</strong></td><td>Llamada de profundizaci&oacute;n (detalles t&eacute;cnicos, prioridades, presupuesto)</td><td>Esta semana</td></tr>
+    <tr><td><strong>2</strong></td><td>Blueprint t&eacute;cnico + cotizaci&oacute;n final</td><td>48 horas despu&eacute;s</td></tr>
+    <tr><td><strong>3</strong></td><td>Inicio de desarrollo Fase 1</td><td>Mayo 2026</td></tr>
+    <tr><td><strong>4</strong></td><td>Entrega Fase 1 + revisi&oacute;n</td><td>Mayo 2026</td></tr>
+    <tr><td><strong>5</strong></td><td>Fases 2 y 3 (si decides continuar)</td><td>Junio-Julio 2026</td></tr>
+  </table>
+</div>
+
+<!-- 08 SOBRE NOSOTROS -->
+<div class="section">
+  <div class="section-num">08 &mdash; Sobre Nosotros</div>
+  <h2>Por qu&eacute; Not So Soft(ware)</h2>
+
+  <div class="highlight">
+    <p><strong>Construimos infraestructura tecnol&oacute;gica AI-native para empresas que necesitan moverse r&aacute;pido.</strong></p>
+    <p>Construimos y operamos toda la infraestructura tecnol&oacute;gica de Rutop&iacute;a, una empresa B-Corp de turismo regenerativo que atiende a 400+ comunidades ind&iacute;genas en M&eacute;xico. Full stack: Supabase, Next.js, agentes AI, CI/CD, monitoreo.</p>
+    <p>Ahora construimos la misma calidad de infraestructura para ti.</p>
+  </div>
+
+  <table>
+    <tr><td><strong>Stack</strong></td><td>Next.js, Supabase, Vercel, Claude AI, WhatsApp Business</td></tr>
+    <tr><td><strong>Ubicaci&oacute;n</strong></td><td>Ciudad de M&eacute;xico</td></tr>
+    <tr><td><strong>Modelo</strong></td><td>Precio fijo. Timeline fijo. Sin sorpresas.</td></tr>
+    <tr><td><strong>Capacidad</strong></td><td>2-3 proyectos por mes</td></tr>
+  </table>
+</div>
+
+<!-- 09 METODOLOG&Iacute;A -->
+<div class="section">
+  <div class="section-num">09 &mdash; Metodolog&iacute;a</div>
+  <h2>C&oacute;mo recopilamos esta informaci&oacute;n</h2>
+  <p>Esta propuesta fue generada a partir de 2 llamadas de descubrimiento conducidas por un agente de IA conversacional, dise&ntilde;ado para mapear la operaci&oacute;n de negocios de forma sistem&aacute;tica.</p>
+
+  <table>
+    <tr><th>Llamada</th><th>Duraci&oacute;n</th><th>Temas cubiertos</th></tr>
+    <tr><td>Llamada 1</td><td>12 min</td><td>Operaci&oacute;n general, fabricaci&oacute;n, proveedores, cadena de suministro, inventarios, consignaci&oacute;n, ecommerce</td></tr>
+    <tr><td>Llamada 2</td><td>6 min</td><td>Perfil del negocio, estructura del equipo, puntos de venta, distribuci&oacute;n de ingresos, fabricaci&oacute;n</td></tr>
+  </table>
+
+  <h3>Informaci&oacute;n pendiente para afinar la propuesta</h3>
+  <ul>
+    <li>Vol&uacute;menes de venta mensuales (piezas y facturaci&oacute;n aprox)</li>
+    <li>Costo promedio de producci&oacute;n por prenda</li>
+    <li>Plataforma actual de ecommerce (Shopify, WooCommerce, otro)</li>
+    <li>Procesos de marketing y comunicaci&oacute;n digital actuales</li>
+    <li>Prioridad: &iquest;qu&eacute; fase resolver&iacute;a tu problema m&aacute;s urgente?</li>
+    <li>Presupuesto disponible para esta inversi&oacute;n</li>
+  </ul>
+</div>
+
+<!-- CTA -->
+<div class="cta">
+  <h2>&iquest;Listas para empezar?</h2>
+  <p style="color: var(--text-dim);">Agenda una llamada de profundizaci&oacute;n. Sin costo, sin compromiso.</p>
+  <div class="cta-buttons">
+    <a href="https://wa.me/5215563165990?text=Hola%20Mauricio%2C%20me%20interesa%20la%20propuesta%20tecnol%C3%B3gica%20que%20me%20enviaron.%20%C2%BFPodemos%20agendar%20una%20llamada%3F" class="cta-btn primary">WhatsApp &rarr;</a>
+    <a href="mailto:mauricio.torres.91@gmail.com?subject=Propuesta%20tecnol%C3%B3gica%20-%20Ximena%20Corcuera&body=Hola%20Mauricio%2C%20me%20interesa%20la%20propuesta.%20%C2%BFPodemos%20agendar%20una%20llamada%3F" class="cta-btn secondary">Correo &rarr;</a>
+  </div>
+  <p style="margin-top: 20px; font-size: 13px; color: var(--text-dim);">
+    mauricio.torres.91@gmail.com &middot; +52 55 6316 5990
+  </p>
+</div>
+
+<div class="footer">
+  &copy; 2026 Not So Soft(ware) &middot; Hecho con prop&oacute;sito desde Ciudad de M&eacute;xico
+</div>
+
+</body>
+</html>
