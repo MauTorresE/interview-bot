@@ -383,18 +383,19 @@ async def entrypoint(ctx: JobContext):
     )
 
     # Select TTS provider based on voice persona (D-07)
-    if config.voice_persona.startswith("elevenlabs"):
+    voice_persona = config.voice_persona or "voxtral-natalia"
+    if voice_persona.startswith("elevenlabs"):
         tts = elevenlabs.TTS(
             model="eleven_turbo_v2_5",
             voice=ELEVENLABS_VOICES.get(
-                config.voice_persona, ELEVENLABS_VOICES["elevenlabs-sofia"]
+                voice_persona, ELEVENLABS_VOICES["elevenlabs-sofia"]
             ),
         )
     else:
         tts = VoxtralTTS(
             model="voxtral-mini-tts-2603",
             voice=VOXTRAL_VOICES.get(
-                config.voice_persona, VOXTRAL_VOICES["voxtral-natalia"]
+                voice_persona, VOXTRAL_VOICES["voxtral-natalia"]
             ),
         )
 

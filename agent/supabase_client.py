@@ -125,11 +125,12 @@ async def load_interview_config(interview_id: str) -> InterviewConfig:
             )
             if brief_result.data and brief_result.data.get("brief_data"):
                 bd = brief_result.data["brief_data"]
+                # Support both key formats: short (goals) and long (research_goals)
                 brief_data = {
-                    "goals": bd.get("goals", brief_data["goals"]),
-                    "data_points": bd.get("data_points", brief_data["data_points"]),
-                    "context": bd.get("context", brief_data["context"]),
-                    "tone": bd.get("tone", brief_data["tone"]),
+                    "goals": bd.get("research_goals") or bd.get("goals", brief_data["goals"]),
+                    "data_points": bd.get("critical_data_points") or bd.get("data_points", brief_data["data_points"]),
+                    "context": bd.get("context_background") or bd.get("context", brief_data["context"]),
+                    "tone": bd.get("tone_approach") or bd.get("tone", brief_data["tone"]),
                 }
         except Exception as e:
             logger.warning(f"Failed to load research brief for campaign {campaign_id}: {e}")
