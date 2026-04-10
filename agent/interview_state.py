@@ -42,8 +42,15 @@ class InterviewState:
             f"Temas documentados: {self.topics_count}.",
         ]
 
+        # Topic pacing guidance
+        ideal_topics = max(2, target_min // 5)  # ~1 topic per 5 min
+        if self.topics_count < 1 and elapsed_min >= 5:
+            lines.append(f"ATENCION: Llevas {elapsed_min} min sin documentar ningun tema. Registra hallazgos y considera transicionar.")
+        elif self.topics_count < ideal_topics and self.elapsed_fraction >= 0.50:
+            lines.append(f"NOTA: Para una entrevista balanceada, cubre {ideal_topics} temas. Llevas {self.topics_count}. Considera transicionar al siguiente tema.")
+
         if self.elapsed_fraction >= 0.95:
-            lines.append("URGENTE: Debes cerrar la entrevista AHORA.")
+            lines.append("URGENTE: Debes cerrar la entrevista AHORA. Da un resumen breve y despidete.")
         elif self.elapsed_fraction >= 0.80:
             lines.append("NOTA: Comienza a cerrar el tema actual y prepara el cierre.")
 
@@ -58,6 +65,11 @@ class InterviewState:
     def should_force_close(self) -> bool:
         """True when 95% of duration elapsed (D-16)."""
         return self.elapsed_fraction >= 0.95
+
+    @property
+    def should_hard_stop(self) -> bool:
+        """True when 110% of duration elapsed — no more talking, end now."""
+        return self.elapsed_fraction >= 1.10
 
     def transition_to(self, phase: str) -> bool:
         """Transition to a new phase if valid."""

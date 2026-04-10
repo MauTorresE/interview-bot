@@ -105,8 +105,8 @@ class EntrevistaAgent(Agent):
             f"Interview started: {self._interview_id} with {self._config.respondent_name}"
         )
 
-    async def _on_user_turn_completed(self, turn_ctx, new_message=None):
-        """Save user transcript entry to Supabase AND send via data channel."""
+    async def on_user_turn_completed(self, turn_ctx, new_message=None):
+        """Override Agent method — save user transcript to Supabase (matches prototype pattern)."""
         text = ""
         if new_message and hasattr(new_message, "text_content"):
             text = new_message.text_content or ""
@@ -115,25 +115,10 @@ class EntrevistaAgent(Agent):
 
         if text.strip():
             elapsed_ms = int((time.time() - self._start_time) * 1000)
-
-            # Persist to Supabase (non-blocking)
-            try:
-                asyncio.create_task(
-                    save_transcript_entry(
-                        self._interview_id, "client", text.strip(), elapsed_ms
-                    )
-                )
-            except Exception as e:
-                logger.error(f"Failed to create transcript save task: {e}")
-
-            # Send via data channel for live frontend display (BLOCKER 1 fix)
-            self._send_data(
-                {
-                    "type": "transcript",
-                    "speaker": "client",
-                    "content": text.strip(),
-                    "elapsed_ms": elapsed_ms,
-                }
+            logger.info(f"Client transcript saving: {text.strip()[:50]}...")
+            # Use await (not create_task) — matches prototype pattern
+            await save_transcript_entry(
+                self._interview_id, "client", text.strip(), elapsed_ms
             )
 
         # Check timing guardrails after every user turn (D-15, D-16)
@@ -286,8 +271,39 @@ class EntrevistaAgent(Agent):
     # ── Timing guardrails (D-15, D-16) ─────────────────────────────
 
     def _check_timing_guardrails(self):
-        """Check elapsed time and inject nudge or force-close as needed."""
-        if self._state.should_force_close and self._state.phase != "closing":
+        """Check elapsed time and inject nudge, force-close, or hard-stop as needed."""
+        if self._state.should_hard_stop and not self._state.ended:
+            # 110% elapsed — HARD STOP. End programmatically, don't rely on LLM.
+            logger.info(
+                f"Interview {self._interview_id}: HARD STOP at "
+                f"{self._state.elapsed_seconds}s / {self._state.duration_target_seconds}s"
+            )
+            self._state.ended = True
+            duration = int(time.time() - self._start_time)
+
+            # Update DB
+            asyncio.create_task(
+                update_interview_status(
+                    self._interview_id,
+                    "completed",
+                    ended_at=datetime.now(timezone.utc).isoformat(),
+                    duration_seconds=duration,
+                    topics_count=self._state.topics_count,
+                )
+            )
+
+            # Notify frontend
+            self._send_data({
+                "type": "interview_ended",
+                "duration": duration,
+                "topics_count": self._state.topics_count,
+            })
+
+            # Say goodbye and close
+            self.session.say("Hemos llegado al final de nuestro tiempo. Muchas gracias por tu participacion. La entrevista ha concluido.")
+            asyncio.create_task(self.session.aclose())
+
+        elif self._state.should_force_close and self._state.phase != "closing":
             # 95% elapsed — force transition to closing (D-16)
             self._state.transition_to("closing")
             self._update_instructions()
@@ -314,21 +330,30 @@ class EntrevistaAgent(Agent):
             style=self._config.interviewer_style,
             duration=self._config.duration_target_minutes,
             state_context=self._state.time_context,
+            phase=self._state.phase,
         )
         self.update_instructions(updated)
 
     def _send_data(self, data: dict):
-        """Send JSON data via data channel to all participants."""
+        """Send JSON data via data channel to all participants. Retries once on failure."""
+        async def _publish():
+            if not (self.session and self.session.room):
+                return
+            payload = json.dumps(data).encode()
+            try:
+                await self.session.room.local_participant.publish_data(payload, reliable=True)
+            except Exception as e:
+                logger.warning(f"Data send failed, retrying: {e}")
+                await asyncio.sleep(0.5)
+                try:
+                    await self.session.room.local_participant.publish_data(payload, reliable=True)
+                except Exception as e2:
+                    logger.error(f"Data send retry failed: {e2}")
+
         try:
-            if self.session and self.session.room:
-                payload = json.dumps(data).encode()
-                asyncio.create_task(
-                    self.session.room.local_participant.publish_data(
-                        payload, reliable=True
-                    )
-                )
+            asyncio.create_task(_publish())
         except Exception as e:
-            logger.error(f"Failed to send data: {e}")
+            logger.error(f"Failed to create send task: {e}")
 
 
 async def entrypoint(ctx: JobContext):
@@ -354,6 +379,7 @@ async def entrypoint(ctx: JobContext):
         style=config.interviewer_style,
         duration=config.duration_target_minutes,
         state_context=state.time_context,
+        phase=state.phase,
     )
 
     # Select TTS provider based on voice persona (D-07)
@@ -384,14 +410,14 @@ async def entrypoint(ctx: JobContext):
     session = AgentSession(
         stt=deepgram.STT(model="nova-3", language="es-419"),
         llm=anthropic.LLM(
-            model=os.environ.get("LLM_MODEL", "claude-sonnet-4-20250514"),
+            model=os.environ.get("LLM_MODEL", "claude-haiku-4-5-20251001"),
             caching="ephemeral",  # Cache system prompt — saves ~90% on repeated turns
             _strict_tool_schema=False,  # Required — strict tools not supported by all models
         ),
         tts=tts,
         vad=silero.VAD.load(
             min_speech_duration=0.3,
-            min_silence_duration=1.0,  # D-34: longer endpointing for interviews
+            min_silence_duration=1.5,  # D-34: longer endpointing for deep thinking pauses in Spanish
             prefix_padding_duration=0.3,  # D-34
         ),
         allow_interruptions=True,  # D-35
@@ -400,82 +426,64 @@ async def entrypoint(ctx: JobContext):
         user_away_timeout=12.0,  # D-37: silence re-engagement after 12s
     )
 
-    # Handle graceful close -- mark interview completed
-    @session.on("close")
-    def on_close(event):
-        if agent._state and not agent._state.ended:
-            duration = int(time.time() - agent._start_time)
-            try:
-                asyncio.create_task(
-                    update_interview_status(
-                        interview_id,
-                        "completed",
-                        ended_at=datetime.now(timezone.utc).isoformat(),
-                        duration_seconds=duration,
-                    )
-                )
-            except Exception as e:
-                logger.error(f"Failed to update status on close: {e}")
-            logger.info(f"Interview {interview_id} closed. Duration: {duration}s")
+    # Register ALL event handlers BEFORE session.start() — handlers registered
+    # after start() miss events in livekit-agents 1.5.2
 
-    await session.start(agent=agent, room=ctx.room)
+    # Save bot speech via conversation_item_added session event
+    # User speech is saved via Agent.on_user_turn_completed() class method override
+    _saved_bot_ids = set()  # Track saved messages to avoid duplicates
 
-    # Save bot speech to transcript when conversation items are added
-    # Registered here (not in on_enter) to match prototype pattern
     @session.on("conversation_item_added")
     def on_conversation_item(event):
         try:
             item = event.data if hasattr(event, "data") else event
+            # Debug: log event structure to understand what we receive
+            logger.debug(f"conversation_item_added: type={type(item).__name__}, attrs={[a for a in dir(item) if not a.startswith('_')][:10]}")
+
             if hasattr(item, "role") and hasattr(item, "text_content"):
                 role = str(item.role)
                 text = item.text_content or ""
-                if text.strip() and "assistant" in role.lower():
+                item_id = getattr(item, "id", None) or id(item)
+
+                if text.strip() and "assistant" in role.lower() and item_id not in _saved_bot_ids:
+                    _saved_bot_ids.add(item_id)
                     elapsed_ms = int((time.time() - agent._start_time) * 1000)
                     asyncio.create_task(
-                        save_transcript_entry(
-                            interview_id, "bot", text.strip(), elapsed_ms
-                        )
+                        save_transcript_entry(interview_id, "bot", text.strip(), elapsed_ms)
                     )
-                    # Send via data channel for live frontend display
-                    agent._send_data({
-                        "type": "transcript",
-                        "speaker": "bot",
-                        "content": text.strip(),
-                        "elapsed_ms": elapsed_ms,
-                    })
-                    logger.info(f"Bot transcript sent: {text.strip()[:50]}...")
+                    logger.info(f"Bot transcript saved: {text.strip()[:50]}...")
+            elif hasattr(item, "content") and hasattr(item, "role"):
+                # Alternative event structure — some LiveKit versions use different attrs
+                role = str(item.role)
+                text = str(item.content) if item.content else ""
+                item_id = getattr(item, "id", None) or id(item)
+
+                if text.strip() and "assistant" in role.lower() and item_id not in _saved_bot_ids:
+                    _saved_bot_ids.add(item_id)
+                    elapsed_ms = int((time.time() - agent._start_time) * 1000)
+                    asyncio.create_task(
+                        save_transcript_entry(interview_id, "bot", text.strip(), elapsed_ms)
+                    )
+                    logger.info(f"Bot transcript saved (alt): {text.strip()[:50]}...")
+            else:
+                logger.debug(f"conversation_item_added: unrecognized structure for {type(item).__name__}")
         except Exception as e:
             logger.error(f"conversation_item_added handler error: {e}")
 
-    # Save user speech to transcript + send via data channel
-    @session.on("user_turn_completed")
-    def on_user_turn(turn_ctx, new_message=None):
-        try:
-            text = ""
-            if new_message and hasattr(new_message, "text_content"):
-                text = new_message.text_content or ""
-            elif new_message and hasattr(new_message, "content"):
-                text = str(new_message.content) if new_message.content else ""
+    # Handle session close
+    @session.on("close")
+    def on_close(event):
+        duration = int(time.time() - agent._start_time)
+        if agent._state.ended:
+            # Agent explicitly ended interview (via end_interview tool) — mark completed
+            logger.info(f"Interview {interview_id} completed normally. Duration: {duration}s")
+            # Status already set to 'completed' by end_interview tool
+        else:
+            # Unexpected disconnect (browser refresh, network drop) — keep as 'active'
+            # so the rejoin flow can reconnect within the room's emptyTimeout (300s)
+            logger.info(f"Interview {interview_id} participant disconnected. Duration: {duration}s. Keeping active for rejoin.")
 
-            if text.strip():
-                elapsed_ms = int((time.time() - agent._start_time) * 1000)
-                asyncio.create_task(
-                    save_transcript_entry(
-                        interview_id, "client", text.strip(), elapsed_ms
-                    )
-                )
-                agent._send_data({
-                    "type": "transcript",
-                    "speaker": "client",
-                    "content": text.strip(),
-                    "elapsed_ms": elapsed_ms,
-                })
-                logger.info(f"Client transcript sent: {text.strip()[:50]}...")
-
-            # Check timing guardrails after every user turn (D-15, D-16)
-            agent._check_timing_guardrails()
-        except Exception as e:
-            logger.error(f"user_turn_completed handler error: {e}")
+    await session.start(agent=agent, room=ctx.room)
 
     # Listen for text messages from the data channel (T-03-08: parse in try/catch)
     @ctx.room.on("data_received")

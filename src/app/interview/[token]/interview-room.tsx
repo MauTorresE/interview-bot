@@ -166,8 +166,12 @@ function InterviewRoomContent({ session, onInterviewEnd }: InterviewRoomProps) {
     return () => clearInterval(interval)
   }, [])
 
-  // Connection state handling (D-11)
+  // Connection state handling (D-11) + ensure mic is enabled on connect/reconnect
   useEffect(() => {
+    if (connectionState === ConnectionState.Connected && localParticipant) {
+      // Ensure mic is publishing (handles rejoin where audio={true} didn't auto-publish)
+      localParticipant.setMicrophoneEnabled(true).catch(() => {})
+    }
     if (
       prevConnectionState.current === ConnectionState.Connected &&
       connectionState === ConnectionState.Reconnecting
@@ -178,13 +182,32 @@ function InterviewRoomContent({ session, onInterviewEnd }: InterviewRoomProps) {
       prevConnectionState.current === ConnectionState.Reconnecting &&
       connectionState === ConnectionState.Disconnected
     ) {
-      toast.error(
-        'No se pudo reconectar. La entrevista fue guardada hasta este punto.',
-        { duration: Infinity }
-      )
+      // If we've been talking for >2 min, treat disconnect as interview end (not error)
+      if (elapsedSeconds > 120) {
+        onInterviewEnd({
+          duration: elapsedSeconds,
+          topicsCount: 0,
+        })
+      } else {
+        toast.error(
+          'No se pudo reconectar. La entrevista fue guardada hasta este punto.',
+          { duration: Infinity }
+        )
+      }
+    }
+    // Also handle direct Connected → Disconnected (agent hard-stopped the session)
+    if (
+      prevConnectionState.current === ConnectionState.Connected &&
+      connectionState === ConnectionState.Disconnected &&
+      elapsedSeconds > 120
+    ) {
+      onInterviewEnd({
+        duration: elapsedSeconds,
+        topicsCount: 0,
+      })
     }
     prevConnectionState.current = connectionState
-  }, [connectionState])
+  }, [connectionState, localParticipant])
 
   // Text input handler
   function handleSendText(text: string) {
