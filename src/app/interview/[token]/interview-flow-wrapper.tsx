@@ -3,20 +3,34 @@
 import { useState, useEffect } from 'react'
 import { ConsentForm } from './consent-form'
 import { LobbyScreen } from './lobby-screen'
-import { InterviewRoom } from './interview-room'
+import { InterviewRoom, type PersistedFinalState } from './interview-room'
+import { FinalizeModal } from '@/components/interview/finalize-modal'
 import { Loader2 } from 'lucide-react'
 
-type FlowPhase = 'loading' | 'consent' | 'lobby' | 'interview' | 'completion' | 'rejoining'
+type FlowPhase =
+  | 'loading'
+  | 'consent'
+  | 'lobby'
+  | 'interview'
+  | 'completion'
+  | 'rejoining'
+  | 'finalizing_restore' // Wave 2.3: modal restored from sessionStorage after refresh
 
 export type InterviewSession = {
   token: string
   wsUrl: string
   interviewId: string
+  respondentId?: string  // Wave 2.3: required for reusable-link rejoin flow (also fixes pre-existing consent-form.tsx TS errors)
   campaignInfo: {
     duration: number      // minutes
     personaName: string
   }
 }
+
+// Wave 2.3: ten-minute TTL for persisted modal state. Older than this and
+// we assume the user abandoned the tab and we'd rather dump them back to
+// consent than restore a stale modal.
+const FINALSTATE_TTL_MS = 10 * 60 * 1000
 
 type Props = {
   inviteToken: string
@@ -39,14 +53,39 @@ export function InterviewFlowWrapper({
   respondentId,
 }: Props) {
   const storageKey = `interview-session-${inviteToken}`
+  const finalStateKey = `interview-finalstate-${inviteToken}`
 
   // Start with 'loading' to check sessionStorage on client side before showing anything
   const [phase, setPhase] = useState<FlowPhase>(activeInterviewId ? 'rejoining' : 'loading' as FlowPhase)
   const [session, setSession] = useState<InterviewSession | null>(null)
   const [completionData, setCompletionData] = useState<CompletionData | null>(null)
 
-  // On mount: check sessionStorage for saved session (handles refresh for reusable links)
+  // Wave 2.3: restored finalization state from sessionStorage. When present,
+  // we render a standalone <FinalizeModal> without reconnecting to LiveKit.
+  const [restoredFinal, setRestoredFinal] = useState<PersistedFinalState | null>(null)
+  const [restoreConfirming, setRestoreConfirming] = useState(false)
+
+  // On mount: check sessionStorage for saved session OR a persisted finalize modal
   useEffect(() => {
+    // Wave 2.3: check for a persisted finalize state FIRST, before any other
+    // branches. If the user refreshed while the modal was showing, we want
+    // to restore it immediately — don't reconnect to LiveKit, don't re-run
+    // consent, just show the modal again with the same summary text.
+    try {
+      const saved = sessionStorage.getItem(finalStateKey)
+      if (saved) {
+        const parsed = JSON.parse(saved) as PersistedFinalState
+        const age = Date.now() - parsed.savedAt
+        if (parsed.version === 1 && age < FINALSTATE_TTL_MS) {
+          setRestoredFinal(parsed)
+          setPhase('finalizing_restore')
+          return
+        }
+        // Stale — clear it and fall through to normal flow
+        sessionStorage.removeItem(finalStateKey)
+      }
+    } catch { /* ignore */ }
+
     // Server-detected active interview — go straight to rejoin
     if (activeInterviewId) {
       setPhase('rejoining')
@@ -125,10 +164,32 @@ export function InterviewFlowWrapper({
   }
 
   function handleInterviewEnd(data: CompletionData) {
-    // Clear session storage — interview is done
-    try { sessionStorage.removeItem(storageKey) } catch { /* ignore */ }
+    // Clear session storage — interview is done (Wave 2.3: clear both keys)
+    try {
+      sessionStorage.removeItem(storageKey)
+      sessionStorage.removeItem(finalStateKey)
+    } catch { /* ignore */ }
     setCompletionData(data)
     setPhase('completion')
+  }
+
+  // Wave 2.3: user clicked Finalizar on the RESTORED modal (after refresh).
+  // We don't have a live LiveKit room to tear down — the original session's
+  // backend already marked the interview completed (via user_confirmed_end,
+  // the 90% watchdog, or the 130% watchdog) OR is still holding the room
+  // until emptyTimeout runs out. Either way, we transition the local UI to
+  // the completion card with whatever data we have.
+  function handleRestoredFinalConfirm() {
+    setRestoreConfirming(true)
+    try {
+      sessionStorage.removeItem(finalStateKey)
+      sessionStorage.removeItem(storageKey)
+    } catch { /* ignore */ }
+    // Brief pause for the spinner to render before the phase transition
+    setTimeout(() => {
+      setCompletionData({ duration: 0, topicsCount: 0 })
+      setPhase('completion')
+    }, 400)
   }
 
   // 300ms fade transitions per D-28
@@ -180,7 +241,25 @@ export function InterviewFlowWrapper({
         >
           <InterviewRoom
             session={session}
+            inviteToken={inviteToken}
             onInterviewEnd={handleInterviewEnd}
+          />
+        </div>
+      )}
+      {phase === 'finalizing_restore' && restoredFinal && (
+        <div
+          key="finalizing_restore"
+          className="animate-in fade-in duration-300 ease-out w-full"
+        >
+          {/* Wave 2.3: standalone FinalizeModal rendered from restored
+              sessionStorage state. No LiveKitRoom, no real-time connection.
+              The user clicks Finalizar and transitions directly to the
+              completion card via handleRestoredFinalConfirm. */}
+          <FinalizeModal
+            summary={restoredFinal.summary || 'Gracias por tu tiempo.'}
+            agentState="idle"
+            onConfirm={handleRestoredFinalConfirm}
+            confirming={restoreConfirming}
           />
         </div>
       )}

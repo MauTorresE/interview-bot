@@ -65,6 +65,7 @@ export async function validateToken(token: string): Promise<{
 
 export async function recordConsent(token: string): Promise<{
   success?: boolean
+  respondentId?: string  // Wave 2.3: unions with recordConsentForReusableLink return type
   error?: string
 }> {
   const admin = getAdmin()

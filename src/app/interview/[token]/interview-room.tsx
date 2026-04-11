@@ -30,7 +30,24 @@ import type { InterviewSession } from './interview-flow-wrapper'
 
 type InterviewRoomProps = {
   session: InterviewSession
+  inviteToken: string
   onInterviewEnd: (data: { duration: number; topicsCount: number }) => void
+}
+
+/**
+ * Shape of the finalization state persisted to sessionStorage (Wave 2.3).
+ * Stored under `interview-finalstate-${inviteToken}` whenever finalizeState
+ * transitions to a non-idle kind. Recovered on mount by interview-flow-wrapper
+ * so refresh during the modal is a non-event — the modal reappears immediately
+ * with the same summary text.
+ */
+export type PersistedFinalState = {
+  version: 1
+  kind: 'showing_modal' | 'finalizing'
+  summary: string
+  source: 'agent' | 'frontend_fallback' | 'user_early'
+  shownAt: number
+  savedAt: number
 }
 
 type ConversationPhase = 'warmup' | 'conversation' | 'closing'
@@ -59,7 +76,7 @@ type FinalizeState =
     }
   | { kind: 'finalizing' }
 
-function InterviewRoomContent({ session, onInterviewEnd }: InterviewRoomProps) {
+function InterviewRoomContent({ session, inviteToken, onInterviewEnd }: InterviewRoomProps) {
   const [phase, setPhase] = useState<ConversationPhase>('warmup')
   const [entries, setEntries] = useState<TranscriptEntry[]>([])
   const [elapsedSeconds, setElapsedSeconds] = useState(0)
@@ -326,6 +343,38 @@ function InterviewRoomContent({ session, onInterviewEnd }: InterviewRoomProps) {
       })
     }
   }, [elapsedSeconds, targetSeconds, finalizeState.kind, requestModal])
+
+  // Wave 2.3: persist finalizeState to sessionStorage so a browser refresh
+  // during the modal is a non-event. The parent InterviewFlowWrapper checks
+  // this key on mount and, if present and fresh (<10 min), renders a
+  // standalone <FinalizeModal> without reconnecting to LiveKit — the user
+  // clicks Finalizar and transitions straight to the completion card.
+  //
+  // Cleared on transition to idle (never happens — machine is monotonic)
+  // or by the parent's onInterviewEnd handler after confirm.
+  useEffect(() => {
+    const key = `interview-finalstate-${inviteToken}`
+    if (finalizeState.kind === 'idle') {
+      try { sessionStorage.removeItem(key) } catch { /* ignore */ }
+      return
+    }
+    const payload: PersistedFinalState = {
+      version: 1,
+      kind: finalizeState.kind,
+      summary:
+        finalizeState.kind === 'showing_modal' ? finalizeState.summary : '',
+      source:
+        finalizeState.kind === 'showing_modal' ? finalizeState.source : 'agent',
+      shownAt:
+        finalizeState.kind === 'showing_modal'
+          ? finalizeState.shownAt
+          : Date.now(),
+      savedAt: Date.now(),
+    }
+    try {
+      sessionStorage.setItem(key, JSON.stringify(payload))
+    } catch { /* ignore */ }
+  }, [finalizeState, inviteToken])
 
   // Wave 1.5: 90-second auto-click fallback. If the modal has been visible
   // for 90 seconds with no user click (e.g., user walked away, notification
@@ -606,7 +655,11 @@ export function InterviewRoom(props: InterviewRoomProps) {
       className="w-full"
     >
       <RoomAudioRenderer />
-      <InterviewRoomContent {...props} />
+      <InterviewRoomContent
+        session={props.session}
+        inviteToken={props.inviteToken}
+        onInterviewEnd={props.onInterviewEnd}
+      />
     </LiveKitRoom>
   )
 }
