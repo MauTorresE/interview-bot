@@ -20,17 +20,6 @@ import {
 import { toast } from 'sonner'
 import { Mic, MicOff } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from '@/components/ui/alert-dialog'
 import { InterviewOrb } from '@/components/interview/interview-orb'
 import { PhaseIndicator } from '@/components/interview/phase-indicator'
 import { TranscriptFeed, type TranscriptEntry } from '@/components/interview/transcript-feed'
@@ -461,25 +450,66 @@ function InterviewRoomContent({ session, onInterviewEnd }: InterviewRoomProps) {
     }, 4000)
   }
 
-  // Legacy "Terminar entrevista" button — still routes through the old
-  // end_interview data message for now. Wave 2.1 will rewire this to
-  // user_requested_end which triggers _force_llm_closing("user_requested")
-  // and uses the same warm-summary modal flow as the happy path.
+  // Wave 2.1: user clicks "Finalizar entrevista" early.
+  //
+  // Instead of an abrupt kill (the old Wave 0 behavior), this now routes
+  // through the SAME flow as the happy path: we send user_requested_end to
+  // the backend, which triggers _force_llm_closing("user_requested"). The
+  // LLM then produces a warm personalized summary using the user-requested
+  // instruction variant (acknowledges early close with gratitude, not "I see
+  // you have to go"). The modal appears via the normal ready_to_finalize
+  // delivery path with TTS coordination.
+  //
+  // UX flow after click:
+  //   1. showWrappingUp banner appears immediately at the top
+  //   2. Backend receives user_requested_end, fires _force_llm_closing
+  //   3. LLM generates summary + calls end_interview tool
+  //   4. agent_state_changed handler delivers ready_to_finalize after TTS
+  //   5. Modal fades in with the agent's summary
+  //   6. User clicks Finalizar in the modal → normal handleConfirmFinalize path
+  //
+  // 12-second safety net: if no modal has appeared by then (LLM crashed,
+  // data channel dropped, etc.), the frontend client-side fallback timer
+  // at 100% elapsed OR the 12s timeout here will show a generic modal so
+  // the user never sees a stuck "Cerrando con un resumen..." banner forever.
   function handleEndInterview() {
+    // Idempotent: if the modal is already showing or we're finalizing,
+    // this click does nothing (prevents double-fire from impatient users)
+    if (finalizeState.kind !== 'idle') return
+
+    setShowWrapupBanner(true)
+
     const payload = new TextEncoder().encode(
-      JSON.stringify({ type: 'end_interview' })
+      JSON.stringify({ type: 'user_requested_end', at: Date.now() })
     )
     room.localParticipant.publishData(payload, { reliable: true }).catch(() => {})
 
-    // Force-end locally after 3 seconds regardless of agent response
+    // Safety net: if backend doesn't deliver ready_to_finalize within 12s
+    // AND the frontend fallback hasn't already fired, show a generic modal
+    // so the user isn't stuck staring at the banner.
     setTimeout(() => {
-      onInterviewEnd({ duration: elapsedSeconds, topicsCount: 0 })
-    }, 3000)
+      setFinalizeState((prev) => {
+        if (prev.kind !== 'idle') return prev
+        return {
+          kind: 'showing_modal',
+          summary:
+            'Gracias por tu tiempo. Con esta conversación tenemos suficiente información para preparar una propuesta personalizada.',
+          source: 'user_early',
+          shownAt: Date.now(),
+        }
+      })
+    }, 12_000)
   }
 
   return (
     <div className="h-dvh flex flex-col max-w-[640px] mx-auto w-full px-4 md:px-8 py-4">
-      {/* Wrap-up banner (Wave 1.5) — shown when agent enters closing phase */}
+      {/* Wrap-up banner (Waves 1.5 + 2.1) — shown when the agent is wrapping up.
+          Two source paths:
+            - Time-up (90% enforcement): backend sends finalization_hint
+            - User-requested (Wave 2.1): frontend sets showWrapupBanner directly
+              when the Finalizar entrevista button is clicked
+          Both produce the same visual — the user can't tell them apart, which
+          is intentional. Hides the moment the modal takes over the viewport. */}
       {showWrapupBanner && finalizeState.kind === 'idle' && (
         <div
           className="w-full text-center text-xs text-muted-foreground py-2 mb-1 rounded-md bg-muted/30 border border-border/40 motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-top-2 motion-safe:duration-300"
@@ -538,32 +568,19 @@ function InterviewRoomContent({ session, onInterviewEnd }: InterviewRoomProps) {
             {isMuted ? <MicOff className="size-5" /> : <Mic className="size-5" />}
           </button>
 
-          {/* End interview button */}
-          <AlertDialog>
-            <AlertDialogTrigger
-              render={<Button variant="ghost" className="text-destructive hover:text-destructive" />}
-            >
-              Terminar entrevista
-            </AlertDialogTrigger>
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle>Terminar entrevista?</AlertDialogTitle>
-                <AlertDialogDescription>
-                  Esto finalizara la entrevista. El entrevistador guardara un
-                  resumen antes de cerrar.
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                <AlertDialogAction
-                  variant="destructive"
-                  onClick={handleEndInterview}
-                >
-                  Terminar
-                </AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
+          {/* Wave 2.1: Finalizar entrevista button.
+              No confirmation dialog — the click is the request to the agent to
+              wrap up with a warm summary, and the user confirms the actual end
+              in the modal that follows. Same routing and same UX as the happy
+              path — just initiated by the user instead of the 90% timer. */}
+          <Button
+            variant="ghost"
+            className="text-destructive hover:text-destructive"
+            onClick={handleEndInterview}
+            disabled={finalizeState.kind !== 'idle' || showWrapupBanner}
+          >
+            Finalizar entrevista
+          </Button>
 
           {/* Spacer */}
           <div className="flex-1" />
