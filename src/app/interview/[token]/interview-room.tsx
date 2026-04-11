@@ -30,6 +30,7 @@ import { PhaseIndicator } from '@/components/interview/phase-indicator'
 import { TranscriptFeed, type TranscriptEntry } from '@/components/interview/transcript-feed'
 import { TextFallbackInput } from '@/components/interview/text-fallback-input'
 import { InterviewTimer } from '@/components/interview/interview-timer'
+import { FinalizeModal } from '@/components/interview/finalize-modal'
 import type { InterviewSession } from './interview-flow-wrapper'
 
 type InterviewRoomProps = {
@@ -39,12 +40,65 @@ type InterviewRoomProps = {
 
 type ConversationPhase = 'warmup' | 'conversation' | 'closing'
 
+/**
+ * Monotonic finalization state machine (Wave 1.5).
+ *
+ * Transitions: idle → showing_modal → finalizing → (unmount via onInterviewEnd)
+ *
+ * Multiple trigger paths call requestModal() but only the first one wins:
+ *   - Agent-delivered via ready_to_finalize data message (happy path, source='agent')
+ *   - Frontend 100% client-side timer fallback (source='frontend_fallback')
+ *   - User clicking the early-close button (Wave 2.1, source='user_early')
+ *
+ * Once in showing_modal, a 90s auto-click fallback guarantees forward progress
+ * even if the user ignores the modal. Once in finalizing, a 4s hard timeout
+ * forces onInterviewEnd locally if the agent hasn't closed us by then.
+ */
+type FinalizeState =
+  | { kind: 'idle' }
+  | {
+      kind: 'showing_modal'
+      summary: string
+      source: 'agent' | 'frontend_fallback' | 'user_early'
+      shownAt: number
+    }
+  | { kind: 'finalizing' }
+
 function InterviewRoomContent({ session, onInterviewEnd }: InterviewRoomProps) {
   const [phase, setPhase] = useState<ConversationPhase>('warmup')
   const [entries, setEntries] = useState<TranscriptEntry[]>([])
   const [elapsedSeconds, setElapsedSeconds] = useState(0)
   const [isMuted, setIsMuted] = useState(false)
   const prevConnectionState = useRef<ConnectionState>(ConnectionState.Connecting)
+
+  // Wave 1.5: monotonic finalization state machine
+  const [finalizeState, setFinalizeState] = useState<FinalizeState>({ kind: 'idle' })
+  const [showWrapupBanner, setShowWrapupBanner] = useState(false)
+  const autoClickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const hardFallbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  /**
+   * Request the modal to be shown. Monotonic: only fires when state is idle.
+   * All trigger paths (agent data msg, frontend fallback timer, early-close button)
+   * funnel through this so duplicate requests are no-ops.
+   */
+  const requestModal = useCallback(
+    (payload: {
+      summary: string
+      source: 'agent' | 'frontend_fallback' | 'user_early'
+    }) => {
+      setFinalizeState((prev) => {
+        if (prev.kind !== 'idle') return prev
+        return {
+          kind: 'showing_modal',
+          summary: payload.summary,
+          source: payload.source,
+          shownAt: Date.now(),
+        }
+      })
+    },
+    []
+  )
 
   const targetSeconds = session.campaignInfo.duration * 60
 
@@ -157,7 +211,18 @@ function InterviewRoomContent({ session, onInterviewEnd }: InterviewRoomProps) {
       }
     }
 
-    // Data channel for non-transcript messages (phase_change, interview_ended)
+    // Data channel for non-transcript messages.
+    //
+    // Wave 1.5 adds handlers for the Tier 0 modal closing flow:
+    //   phase_change        — conversation phase sync (existing)
+    //   finalization_hint   — show the top wrap-up banner (agent entering closing)
+    //   ready_to_finalize   — request the modal with a summary from the agent
+    //   interview_ended     — legacy teardown message, still supported. When the
+    //                         finalize flow has already owned the UI (showing_modal
+    //                         or finalizing), this is just the expected post-
+    //                         confirmation signal — we let the 4s hard-fallback
+    //                         in handleConfirmFinalize transition the UI instead
+    //                         of double-firing onInterviewEnd here.
     function onDataReceived(payload: Uint8Array) {
       try {
         const text = new TextDecoder().decode(payload)
@@ -165,10 +230,27 @@ function InterviewRoomContent({ session, onInterviewEnd }: InterviewRoomProps) {
 
         if (data.type === 'phase_change' && data.phase) {
           setPhase(data.phase as ConversationPhase)
+        } else if (data.type === 'finalization_hint') {
+          setShowWrapupBanner(true)
+        } else if (data.type === 'ready_to_finalize') {
+          requestModal({
+            summary: typeof data.summary === 'string' && data.summary.trim()
+              ? data.summary
+              : 'Gracias por tu tiempo.',
+            source: 'agent',
+          })
         } else if (data.type === 'interview_ended') {
-          onInterviewEnd({
-            duration: data.duration ?? 0,
-            topicsCount: data.topics_count ?? 0,
+          // If the finalize machine is already active, let it run its course
+          // (handleConfirmFinalize has its own 4s hard fallback to onInterviewEnd).
+          // Otherwise this is a legacy backend path — transition directly.
+          setFinalizeState((prev) => {
+            if (prev.kind === 'idle') {
+              onInterviewEnd({
+                duration: data.duration ?? 0,
+                topicsCount: data.topics_count ?? 0,
+              })
+            }
+            return prev
           })
         }
       } catch {
@@ -182,7 +264,43 @@ function InterviewRoomContent({ session, onInterviewEnd }: InterviewRoomProps) {
       room.off(RoomEvent.TranscriptionReceived, onTranscriptionReceived)
       room.off(RoomEvent.DataReceived, onDataReceived)
     }
-  }, [room, onInterviewEnd, elapsedSeconds])
+  }, [room, onInterviewEnd, elapsedSeconds, requestModal])
+
+  // Wave 1.5: frontend client-side fallback timer at 100% elapsed.
+  // If the agent hasn't delivered ready_to_finalize by the time the target
+  // duration is reached, show the modal with a generic summary. This is the
+  // "backend is dead" safety net — runs even if the Python agent has crashed.
+  useEffect(() => {
+    if (finalizeState.kind !== 'idle') return
+    if (targetSeconds > 0 && elapsedSeconds >= targetSeconds) {
+      requestModal({
+        summary:
+          'Gracias por tu tiempo. Con esta conversación tenemos suficiente información para preparar una propuesta personalizada.',
+        source: 'frontend_fallback',
+      })
+    }
+  }, [elapsedSeconds, targetSeconds, finalizeState.kind, requestModal])
+
+  // Wave 1.5: 90-second auto-click fallback. If the modal has been visible
+  // for 90 seconds with no user click (e.g., user walked away, notification
+  // covering the screen), automatically fire the confirm flow so the session
+  // teardown completes cleanly.
+  useEffect(() => {
+    if (finalizeState.kind !== 'showing_modal') return
+    const id = setTimeout(() => {
+      handleConfirmFinalize()
+    }, 90_000)
+    autoClickTimerRef.current = id
+    return () => {
+      clearTimeout(id)
+      if (autoClickTimerRef.current === id) {
+        autoClickTimerRef.current = null
+      }
+    }
+    // handleConfirmFinalize is stable within a render but referenced by the
+    // linter — we intentionally only re-run on state kind change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [finalizeState.kind])
 
   // Elapsed time counter
   useEffect(() => {
@@ -253,7 +371,43 @@ function InterviewRoomContent({ session, onInterviewEnd }: InterviewRoomProps) {
     setIsMuted(newMuted)
   }
 
-  // End interview — send to agent + force-end locally after 3s
+  // Wave 1.5: handle user clicking the Finalizar button in the modal.
+  //
+  // Sends user_confirmed_end over the data channel so the backend can mark
+  // the interview completed in Supabase and gracefully tear down the session.
+  // A 4s hard fallback forces the local UI transition if the backend doesn't
+  // disconnect us — covers the case where the data message was lost or the
+  // Python agent crashed mid-confirmation.
+  function handleConfirmFinalize() {
+    // Cancel the 90s auto-click timer — we're taking over
+    if (autoClickTimerRef.current) {
+      clearTimeout(autoClickTimerRef.current)
+      autoClickTimerRef.current = null
+    }
+
+    setFinalizeState({ kind: 'finalizing' })
+
+    const payload = new TextEncoder().encode(
+      JSON.stringify({ type: 'user_confirmed_end', at: Date.now() })
+    )
+    room.localParticipant
+      .publishData(payload, { reliable: true })
+      .catch(() => {})
+
+    // Hard fallback: if the backend doesn't close the session within 4s,
+    // force the local UI transition anyway. Clean UX > stuck spinner.
+    if (hardFallbackTimerRef.current) {
+      clearTimeout(hardFallbackTimerRef.current)
+    }
+    hardFallbackTimerRef.current = setTimeout(() => {
+      onInterviewEnd({ duration: elapsedSeconds, topicsCount: 0 })
+    }, 4000)
+  }
+
+  // Legacy "Terminar entrevista" button — still routes through the old
+  // end_interview data message for now. Wave 2.1 will rewire this to
+  // user_requested_end which triggers _force_llm_closing("user_requested")
+  // and uses the same warm-summary modal flow as the happy path.
   function handleEndInterview() {
     const payload = new TextEncoder().encode(
       JSON.stringify({ type: 'end_interview' })
@@ -268,6 +422,32 @@ function InterviewRoomContent({ session, onInterviewEnd }: InterviewRoomProps) {
 
   return (
     <div className="h-dvh flex flex-col max-w-[640px] mx-auto w-full px-4 md:px-8 py-4">
+      {/* Wrap-up banner (Wave 1.5) — shown when agent enters closing phase */}
+      {showWrapupBanner && finalizeState.kind === 'idle' && (
+        <div
+          className="w-full text-center text-xs text-muted-foreground py-2 mb-1 rounded-md bg-muted/30 border border-border/40 motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-top-2 motion-safe:duration-300"
+          role="status"
+          aria-live="polite"
+        >
+          El entrevistador está preparando un resumen...
+        </div>
+      )}
+
+      {/* Finalize modal (Wave 1.5) — shown when ready_to_finalize is delivered
+          OR the frontend 100% fallback timer fires */}
+      {(finalizeState.kind === 'showing_modal' || finalizeState.kind === 'finalizing') && (
+        <FinalizeModal
+          summary={
+            finalizeState.kind === 'showing_modal'
+              ? finalizeState.summary
+              : 'Gracias por tu tiempo.'
+          }
+          agentState={agentState}
+          onConfirm={handleConfirmFinalize}
+          confirming={finalizeState.kind === 'finalizing'}
+        />
+      )}
+
       {/* Top region: Orb + Phase */}
       <div className="flex flex-col items-center gap-2 pt-8 pb-6">
         <InterviewOrb state={orbState} volume={agentVolume} />

@@ -22,11 +22,15 @@ import { useEffect, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Sparkles, Loader2 } from 'lucide-react'
 
-type AgentState = 'disconnected' | 'connecting' | 'initializing' | 'listening' | 'thinking' | 'speaking'
-
 type FinalizeModalProps = {
   summary: string
-  agentState: AgentState
+  /**
+   * Raw agent state string from useVoiceAssistant(). We only care about
+   * whether it's 'speaking' or 'thinking' for TTS-aware button gating;
+   * other values (listening / idle / initializing / connecting / disconnected)
+   * are treated as "safe to click".
+   */
+  agentState: string
   onConfirm: () => void
   /** True while the confirm request is in flight (button shows spinner). */
   confirming?: boolean
