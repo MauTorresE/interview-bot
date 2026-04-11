@@ -102,6 +102,9 @@ class EntrevistaAgent(Agent):
         self._config = config
         self._state = state
         self._start_time = time.time()
+        # Wave 1.3: track agent state transitions to deliver pending_finalize
+        # in the silence AFTER the TTS playout completes (speaking → listening/idle)
+        self._last_agent_state: str = "initializing"
 
     # ── Lifecycle hooks ─────────────────────────────────────────────
 
@@ -330,10 +333,11 @@ class EntrevistaAgent(Agent):
         # Flag the tool call so the timing loop knows not to also force-close
         self._state.mark_end_tool_called()
 
-        # Stage the finalization payload. Wave 1.3 will wire agent_state_changed
-        # to deliver ready_to_finalize AFTER the TTS of this turn finishes playing.
-        # For now (Wave 1.2) we send it immediately — the modal may appear slightly
-        # before the TTS audio completes. Wave 1.3 fixes the timing.
+        # Stage the finalization payload. Delivery is deferred to the
+        # agent_state_changed handler (Wave 1.3) which fires when the agent
+        # transitions from 'speaking' to 'listening'/'idle' — i.e., when the
+        # TTS playout of THIS response finishes. That way the modal appears
+        # in the silence AFTER the user hears the goodbye, not during it.
         payload = {
             "type": "ready_to_finalize",
             "summary": summary,
@@ -342,7 +346,28 @@ class EntrevistaAgent(Agent):
             "source": "agent",
         }
         self._state.pending_finalize = payload
-        self._send_data(payload)
+        self._state.pending_finalize_delivered = False
+        self._send_data({"type": "finalization_hint"})  # frontend wrap-up banner
+
+        # Fallback: if agent_state_changed doesn't fire within 20s, deliver
+        # pending_finalize anyway. Covers TTS provider failures, unexpected
+        # state transitions, or any other timing weirdness. 20s is generous —
+        # longest summaries clock in around 12-15s of TTS.
+        async def _deliver_finalize_fallback():
+            await asyncio.sleep(20)
+            if (
+                self._state.pending_finalize
+                and not self._state.pending_finalize_delivered
+                and not self._state.ended
+            ):
+                logger.warning(
+                    f"Interview {self._interview_id}: agent_state_changed timeout — "
+                    "delivering pending_finalize via fallback"
+                )
+                self._state.pending_finalize_delivered = True
+                self._send_data(self._state.pending_finalize)
+
+        asyncio.create_task(_deliver_finalize_fallback())
 
         # Do NOT mark state.ended = True here — wait for user_confirmed_end.
         # Do NOT call session.aclose() here — wait for user_confirmed_end.
@@ -632,6 +657,49 @@ async def entrypoint(ctx: JobContext):
         except Exception as e:
             logger.error(f"conversation_item_added handler error: {e}")
 
+    # Wave 1.3 — agent_state_changed handler for TTS-coordinated modal delivery.
+    #
+    # When end_interview tool fires, it stages pending_finalize in agent._state
+    # but does NOT send the ready_to_finalize data message. This handler watches
+    # for the agent's state to transition from 'speaking' to 'listening'/'idle'
+    # — which happens when the TTS playout of the current turn completes — and
+    # THEN delivers the modal. Result: the modal appears in the silence after
+    # the user hears the goodbye, not during it.
+    #
+    # If this handler never fires (TTS stuck, unexpected state, etc.), the 20s
+    # fallback task scheduled in end_interview still delivers the payload.
+    @session.on("agent_state_changed")
+    def on_agent_state_changed(ev):
+        try:
+            # Be defensive about attribute names across LiveKit Agents versions
+            new_state = getattr(ev, "new_state", None) or getattr(ev, "state", None)
+            if not new_state:
+                return
+            new_state_str = str(new_state)
+            old_state_str = agent._last_agent_state
+            agent._last_agent_state = new_state_str
+
+            logger.debug(
+                f"Interview {interview_id}: agent_state_changed {old_state_str} → {new_state_str}"
+            )
+
+            # Deliver pending_finalize when TTS playout of the end_interview
+            # turn completes (speaking → listening/idle transition)
+            if (
+                agent._state.pending_finalize
+                and not agent._state.pending_finalize_delivered
+                and old_state_str == "speaking"
+                and new_state_str in ("listening", "idle")
+            ):
+                logger.info(
+                    f"Interview {interview_id}: agent_state_changed "
+                    f"{old_state_str}→{new_state_str} — delivering pending_finalize"
+                )
+                agent._state.pending_finalize_delivered = True
+                agent._send_data(agent._state.pending_finalize)
+        except Exception as e:
+            logger.error(f"agent_state_changed handler error: {e}", exc_info=True)
+
     # Handle session close
     @session.on("close")
     def on_close(event):
@@ -734,8 +802,10 @@ async def entrypoint(ctx: JobContext):
         elif ptype == "sync_request":
             # Frontend is reconnecting — re-send any pending finalize payload
             # so the modal can re-appear without waiting for another tool call.
+            # Explicit re-request bypasses the pending_finalize_delivered guard.
             if agent._state.pending_finalize:
                 logger.info(f"Interview {interview_id}: re-sending pending_finalize on sync_request")
+                agent._state.pending_finalize_delivered = True
                 agent._send_data(agent._state.pending_finalize)
 
         elif ptype == "end_interview":

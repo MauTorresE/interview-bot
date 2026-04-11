@@ -44,6 +44,7 @@ class InterviewState:
         # Observability / coordination
         self.llm_in_flight: bool = False
         self.pending_finalize: Optional[dict] = None
+        self.pending_finalize_delivered: bool = False  # True after first delivery (prevents double-send)
 
     # ── Timing properties ───────────────────────────────────────────
 
