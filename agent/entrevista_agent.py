@@ -325,6 +325,43 @@ class EntrevistaAgent(Agent):
         tu voz.
         """
         duration = int(time.time() - self._start_time)
+        frac = self._state.elapsed_fraction
+
+        # Wave 2.2: minimum elapsed guard.
+        #
+        # Prevents the LLM from calling end_interview prematurely due to
+        # mis-interpreting a user's "let's wrap up" or "I'm done" as an
+        # actual finalization request. If the interview is less than 60%
+        # elapsed AND fewer than 2 topics are documented, reject the tool
+        # call and instruct the LLM to keep going.
+        #
+        # Bypass conditions:
+        #   1. User explicitly clicked "Finalizar entrevista" early — the
+        #      user's explicit request trumps the guard (their time, their
+        #      call)
+        #   2. _closing_forced is True — enforcement was already fired at
+        #      90% or idle-timeout, so the time constraint was legitimately
+        #      met via a different path
+        if (
+            frac < 0.60
+            and self._state.topics_count < 2
+            and not self._state._user_requested_end
+            and not self._state._closing_forced
+        ):
+            logger.info(
+                f"Interview {self._interview_id}: end_interview REJECTED as premature "
+                f"(frac={frac:.2f}, topics={self._state.topics_count}, summary_len={len(summary)})"
+            )
+            return (
+                f"ERROR: No puedes cerrar la entrevista aun. "
+                f"Solo llevas {int(frac*100)}% del tiempo y {self._state.topics_count} "
+                f"temas documentados. Necesitas al menos 60% del tiempo Y 2 temas "
+                f"documentados (via note_theme) antes de cerrar. Continua la entrevista: "
+                f"profundiza en el tema actual con cuantificacion y ejemplos concretos, "
+                f"o transiciona a una nueva area de descubrimiento. NO intentes cerrar "
+                f"de nuevo hasta que hayas cubierto mas material."
+            )
+
         logger.info(
             f"Interview {self._interview_id}: end_interview tool called "
             f"(elapsed={duration}s, topics={self._state.topics_count}, summary_len={len(summary)})"
