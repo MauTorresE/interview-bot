@@ -307,34 +307,52 @@ class EntrevistaAgent(Agent):
         ctx: RunContext,
         summary: str,
     ) -> str:
-        """Termina la entrevista. Llama esta funcion despues de dar el resumen final y despedirte."""
-        self._state.ended = True
+        """Termina la entrevista con un resumen personalizado.
+
+        El resumen DEBE incluir: (1) nombre del participante si esta disponible,
+        (2) dos observaciones especificas sobre su operacion con herramientas,
+        procesos o numeros concretos que mencionaron, (3) mencion breve del
+        proximo paso (el equipo preparara una propuesta), (4) cierre calido.
+        Minimo 3 oraciones, maximo 4. NO uses frases genericas vacias.
+
+        IMPORTANTE: Esta funcion NO termina la llamada inmediatamente. En lugar
+        de eso, presenta al usuario un modal para que el confirme el cierre.
+        Tu debes decir el resumen en voz alta en la misma respuesta donde llamas
+        esta funcion — el modal aparece mientras el usuario termina de escuchar
+        tu voz.
+        """
         duration = int(time.time() - self._start_time)
-
-        try:
-            asyncio.create_task(
-                update_interview_status(
-                    self._interview_id,
-                    "completed",
-                    ended_at=datetime.now(timezone.utc).isoformat(),
-                    duration_seconds=duration,
-                    topics_count=self._state.topics_count,
-                )
-            )
-        except Exception as e:
-            logger.error(f"Failed to update interview status on end: {e}")
-
-        self._send_data(
-            {
-                "type": "interview_ended",
-                "duration": duration,
-                "topics_count": self._state.topics_count,
-            }
-        )
         logger.info(
-            f"Interview {self._interview_id} ended. Duration: {duration}s, Topics: {self._state.topics_count}"
+            f"Interview {self._interview_id}: end_interview tool called "
+            f"(elapsed={duration}s, topics={self._state.topics_count}, summary_len={len(summary)})"
         )
-        return f"Entrevista finalizada. Resumen: {summary}"
+
+        # Flag the tool call so the timing loop knows not to also force-close
+        self._state.mark_end_tool_called()
+
+        # Stage the finalization payload. Wave 1.3 will wire agent_state_changed
+        # to deliver ready_to_finalize AFTER the TTS of this turn finishes playing.
+        # For now (Wave 1.2) we send it immediately — the modal may appear slightly
+        # before the TTS audio completes. Wave 1.3 fixes the timing.
+        payload = {
+            "type": "ready_to_finalize",
+            "summary": summary,
+            "duration": duration,
+            "topics_count": self._state.topics_count,
+            "source": "agent",
+        }
+        self._state.pending_finalize = payload
+        self._send_data(payload)
+
+        # Do NOT mark state.ended = True here — wait for user_confirmed_end.
+        # Do NOT call session.aclose() here — wait for user_confirmed_end.
+        # The agent stays alive so the TTS playout of the summary completes
+        # naturally. The actual teardown happens when the user clicks the
+        # Finalizar button in the modal (handled in on_data via user_confirmed_end).
+        return (
+            "Modal de finalizacion mostrado al usuario. "
+            "La llamada continuara hasta que el participante confirme el cierre."
+        )
 
     # ── Timing guardrails (Tier 0 rewrite) ─────────────────────────
 
@@ -619,9 +637,9 @@ async def entrypoint(ctx: JobContext):
     def on_close(event):
         duration = int(time.time() - agent._start_time)
         if agent._state.ended:
-            # Agent explicitly ended interview (via end_interview tool) — mark completed
+            # Agent explicitly ended interview (via user_confirmed_end or watchdog) — mark completed
             logger.info(f"Interview {interview_id} completed normally. Duration: {duration}s")
-            # Status already set to 'completed' by end_interview tool
+            # Status already set to 'completed' by the path that set state.ended
         else:
             # Unexpected disconnect (browser refresh, network drop) — keep as 'active'
             # so the rejoin flow can reconnect within the room's emptyTimeout (300s)
@@ -629,23 +647,108 @@ async def entrypoint(ctx: JobContext):
 
     await session.start(agent=agent, room=ctx.room)
 
-    # Listen for text messages from the data channel (T-03-08: parse in try/catch)
+    # ── Data channel listener ──────────────────────────────────────
+    #
+    # Message types handled (Tier 0 + Tier 1):
+    #   text_input           — user typed text fallback (forwarded to LLM)
+    #   user_confirmed_end   — user clicked "Finalizar" in the modal (main happy path)
+    #   user_requested_end   — user clicked "Finalizar entrevista" button early (Wave 2.1)
+    #   sync_request         — frontend re-attaching after reconnect wants pending payload
+    #   end_interview        — legacy "Terminar" button (kept for backward compat during rollout)
+
+    async def _complete_interview(reason: str, source: str = "user") -> None:
+        """Mark interview complete, flush DB, send final data msg, then aclose.
+
+        Single shared path used by user_confirmed_end, user_requested_end (fallback),
+        and the legacy end_interview data message. Idempotent via state.ended guard.
+        """
+        if agent._state.ended:
+            return
+        agent._state.ended = True
+        duration_s = int(time.time() - agent._start_time)
+        logger.info(
+            f"Interview {interview_id} completing normally "
+            f"(reason={reason}, source={source}, duration={duration_s}s)"
+        )
+
+        # Update DB first so researchers see the completed state even if aclose races
+        try:
+            await update_interview_status(
+                interview_id,
+                "completed",
+                ended_at=datetime.now(timezone.utc).isoformat(),
+                duration_seconds=duration_s,
+                topics_count=agent._state.topics_count,
+            )
+        except Exception as e:
+            logger.error(f"Failed to update interview status on complete: {e}")
+
+        # Send a final interview_ended message (kept for frontend backward compat)
+        agent._send_data(
+            {
+                "type": "interview_ended",
+                "duration": duration_s,
+                "topics_count": agent._state.topics_count,
+                "reason": reason,
+            }
+        )
+
+        # Give the data channel a brief moment to flush before tearing down the room
+        await asyncio.sleep(0.5)
+        try:
+            await session.aclose()
+        except Exception as e:
+            logger.debug(f"session.aclose during complete raised: {e}")
+
     @ctx.room.on("data_received")
     def on_data(data_packet):
         try:
             payload = json.loads(data_packet.data.decode())
-            if payload.get("type") == "text_input":
-                text = payload.get("text", "").strip()
-                if text:
-                    logger.info(f"Text input received: {text[:100]}")
-                    asyncio.create_task(
-                        session.generate_reply(user_input=text)
-                    )
-            elif payload.get("type") == "end_interview":
-                logger.info("End interview requested by user")
-                asyncio.create_task(session.aclose())
         except Exception as e:
             logger.debug(f"Data channel parse error: {e}")
+            return
+
+        ptype = payload.get("type")
+
+        if ptype == "text_input":
+            text = payload.get("text", "").strip()
+            if text:
+                logger.info(f"Text input received: {text[:100]}")
+                asyncio.create_task(session.generate_reply(user_input=text))
+
+        elif ptype == "user_confirmed_end":
+            # Main happy path: user clicked Finalizar in the modal
+            logger.info(f"Interview {interview_id}: user_confirmed_end received")
+            asyncio.create_task(_complete_interview("user_confirmed_end", source="modal"))
+
+        elif ptype == "user_requested_end":
+            # Wave 2.1: user clicked "Finalizar entrevista" early — triggers the
+            # same closing flow as the 90% enforcement but with a warmer instruction
+            # variant. If _force_llm_closing fails to actually produce a summary,
+            # the frontend will still get a fallback modal via its own client-side
+            # timer and can then send user_confirmed_end.
+            logger.info(f"Interview {interview_id}: user_requested_end received")
+            agent._state.mark_user_requested_end()
+            asyncio.create_task(agent._force_llm_closing("user_requested"))
+
+        elif ptype == "sync_request":
+            # Frontend is reconnecting — re-send any pending finalize payload
+            # so the modal can re-appear without waiting for another tool call.
+            if agent._state.pending_finalize:
+                logger.info(f"Interview {interview_id}: re-sending pending_finalize on sync_request")
+                agent._send_data(agent._state.pending_finalize)
+
+        elif ptype == "end_interview":
+            # Legacy "Terminar entrevista" hard-kill path. During Tier 0/1 rollout
+            # we keep this functional as a safety valve — any frontend not yet
+            # updated to the new modal flow still gets a clean teardown instead
+            # of a stuck session. Wave 2.1 will repoint the UI button at
+            # user_requested_end instead.
+            logger.info(f"Interview {interview_id}: legacy end_interview received")
+            asyncio.create_task(_complete_interview("legacy_end_interview", source="legacy"))
+
+        else:
+            logger.debug(f"Unknown data channel message type: {ptype}")
 
 
 if __name__ == "__main__":
