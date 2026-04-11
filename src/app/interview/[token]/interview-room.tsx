@@ -10,7 +10,13 @@ import {
   useConnectionState,
   useRoomContext,
 } from '@livekit/components-react'
-import { ConnectionState, RoomEvent, type RemoteParticipant, type TranscriptionSegment } from 'livekit-client'
+import {
+  ConnectionState,
+  RoomEvent,
+  type Participant,
+  type TranscriptionSegment,
+  type TrackPublication,
+} from 'livekit-client'
 import { toast } from 'sonner'
 import { Mic, MicOff } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -76,6 +82,17 @@ function InterviewRoomContent({ session, onInterviewEnd }: InterviewRoomProps) {
   const [showWrapupBanner, setShowWrapupBanner] = useState(false)
   const autoClickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const hardFallbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // Wave 1.6: per-speaker live interim slot. Deepgram STT emits interim
+  // segments with rotating ids, so we can't treat them as part of the
+  // committed entries list (would duplicate as "A A B A B C"). Instead we
+  // store the latest interim per speaker here and render it as a fading
+  // overlay at the bottom of the transcript. When a final segment arrives,
+  // we commit it to `entries` and clear the slot.
+  const [liveInterim, setLiveInterim] = useState<{
+    bot?: TranscriptEntry
+    client?: TranscriptEntry
+  }>({})
 
   /**
    * Request the modal to be shown. Monotonic: only fires when state is idle.
@@ -150,23 +167,69 @@ function InterviewRoomContent({ session, onInterviewEnd }: InterviewRoomProps) {
   // Raw data channel via room context (matches prototype pattern)
   const room = useRoomContext()
 
-  // Listen for LiveKit built-in transcription events (matching prototype pattern)
+  // Listen for LiveKit built-in transcription events.
+  //
+  // Wave 1.6: per-speaker live interim slot pattern.
+  //
+  // Deepgram STT emits interim segments with rotating ids (each interim chunk
+  // may have a new seg.id AND cumulative text like "A" → "A B" → "A B C").
+  // My previous fix skipped all non-final segments to prevent duplication,
+  // which correctly eliminated the "A A B A B C" bug but broke live display —
+  // transcripts only appeared after VAD endpoint (1.5s of silence).
+  //
+  // The new approach tracks a single in-flight interim per speaker in a
+  // dedicated `liveInterim` state. Each interim update REPLACES the slot
+  // instead of appending. When a final segment arrives, it commits to the
+  // `entries` list and clears the slot. The TranscriptFeed renders committed
+  // entries plus any active slots at the bottom with reduced opacity.
   useEffect(() => {
     function onTranscriptionReceived(
       segments: TranscriptionSegment[],
-      participant?: RemoteParticipant
+      participant?: Participant,
+      _publication?: TrackPublication,
     ) {
+      // Identify the bot: either its identity starts with "agent" (LiveKit
+      // agent naming convention) or it's not the local participant at all.
+      // Using Participant (the common parent of RemoteParticipant and
+      // LocalParticipant) makes the comparison type-safe.
       const isBot = participant?.identity?.startsWith('agent') ||
-        (participant && participant !== room.localParticipant)
+        (!!participant && participant.identity !== room.localParticipant.identity)
 
       for (const seg of segments) {
         if (!seg.text?.trim()) continue
         const speaker: 'bot' | 'client' = isBot ? 'bot' : 'client'
         const stableId = `${speaker}-${seg.id}`
+        const currentMs = elapsedSeconds * 1000
+
+        if (!seg.final) {
+          // Interim segment — goes to the live slot for this speaker.
+          // REPLACES whatever was there (cumulative text overwrites).
+          // When a new id arrives with different text, this naturally
+          // discards the old interim without appending anything.
+          setLiveInterim((prev) => ({
+            ...prev,
+            [speaker]: {
+              id: `interim-${speaker}`,
+              speaker,
+              content: seg.text,
+              elapsedMs: currentMs,
+            },
+          }))
+          continue
+        }
+
+        // Final segment — clear the live slot for this speaker and commit
+        // to entries. Done in separate setState calls so React can batch them.
+        setLiveInterim((prev) => {
+          if (!prev[speaker]) return prev
+          const next = { ...prev }
+          delete next[speaker]
+          return next
+        })
 
         setEntries((prev) => {
-          // Always update in place if this exact segment id already exists
-          // (covers interim → final updates where id is stable)
+          // Update in place if this exact segment id already exists (rare
+          // but safe — some LiveKit paths emit the same id twice).
           const existingIdx = prev.findIndex((m) => m.id === stableId)
           if (existingIdx >= 0) {
             const updated = [...prev]
@@ -174,17 +237,10 @@ function InterviewRoomContent({ session, onInterviewEnd }: InterviewRoomProps) {
             return updated
           }
 
-          // For non-final (interim) segments with a new id, skip instead of
-          // merging — Deepgram can emit interim chunks with cumulative text
-          // and rotating ids, which would cause duplication if concatenated.
-          if (!seg.final) {
-            return prev
-          }
-
-          // Final segment, new id: merge with previous entry if same speaker
-          // within 12s, otherwise append as new entry.
+          // Merge with the previous entry if same speaker and within 12s.
+          // This keeps consecutive same-speaker utterances from each arriving
+          // Deepgram final segment grouped into one logical turn.
           const lastEntry = prev[prev.length - 1]
-          const currentMs = elapsedSeconds * 1000
           if (
             lastEntry &&
             lastEntry.speaker === speaker &&
@@ -198,6 +254,7 @@ function InterviewRoomContent({ session, onInterviewEnd }: InterviewRoomProps) {
             return updated
           }
 
+          // Otherwise append as a new entry.
           return [
             ...prev,
             {
@@ -455,7 +512,7 @@ function InterviewRoomContent({ session, onInterviewEnd }: InterviewRoomProps) {
       </div>
 
       {/* Middle region: Transcript (flex-1) */}
-      <TranscriptFeed entries={entries} />
+      <TranscriptFeed entries={entries} liveInterim={liveInterim} />
 
       {/* Bottom controls */}
       <div className="flex flex-col gap-3 pb-4 pt-3">
