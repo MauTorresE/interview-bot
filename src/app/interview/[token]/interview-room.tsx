@@ -111,7 +111,8 @@ function InterviewRoomContent({ session, onInterviewEnd }: InterviewRoomProps) {
         const stableId = `${speaker}-${seg.id}`
 
         setEntries((prev) => {
-          // Check if this exact segment already exists (interim → final update)
+          // Always update in place if this exact segment id already exists
+          // (covers interim → final updates where id is stable)
           const existingIdx = prev.findIndex((m) => m.id === stableId)
           if (existingIdx >= 0) {
             const updated = [...prev]
@@ -119,7 +120,15 @@ function InterviewRoomContent({ session, onInterviewEnd }: InterviewRoomProps) {
             return updated
           }
 
-          // Merge with previous entry if same speaker and within 8 seconds
+          // For non-final (interim) segments with a new id, skip instead of
+          // merging — Deepgram can emit interim chunks with cumulative text
+          // and rotating ids, which would cause duplication if concatenated.
+          if (!seg.final) {
+            return prev
+          }
+
+          // Final segment, new id: merge with previous entry if same speaker
+          // within 12s, otherwise append as new entry.
           const lastEntry = prev[prev.length - 1]
           const currentMs = elapsedSeconds * 1000
           if (

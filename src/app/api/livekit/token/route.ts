@@ -45,8 +45,29 @@ export async function POST(req: NextRequest) {
     .eq('status', 'active')
     .maybeSingle()
 
-  // If rejoin requested and active interview exists, generate new token for same room
+  // If rejoin requested and active interview exists, verify room still alive and rejoin
   if (existing && rejoin) {
+    const livekitHost = process.env.LIVEKIT_URL!.replace('wss://', 'https://').replace('ws://', 'http://')
+    const roomService = new RoomServiceClient(
+      livekitHost,
+      process.env.LIVEKIT_API_KEY!,
+      process.env.LIVEKIT_API_SECRET!,
+    )
+
+    const roomName = `interview-${existing.id}`
+
+    // Check if room still exists (agent still alive)
+    try {
+      const rooms = await roomService.listRooms([roomName])
+      if (!rooms || rooms.length === 0) {
+        // Room expired — mark interview as dropped, force new session
+        await admin.from('interviews').update({ status: 'dropped' }).eq('id', existing.id)
+        return NextResponse.json({ error: 'room_expired' }, { status: 410 })
+      }
+    } catch {
+      // If room check fails, still try to rejoin (optimistic)
+    }
+
     const { data: campaign } = await admin
       .from('campaigns')
       .select('duration_target_minutes, voice_id')
@@ -58,7 +79,6 @@ export async function POST(req: NextRequest) {
     const persona = VOICE_PERSONAS.find(p => p.id === voiceId)
     const personaName = persona?.name ?? 'Natalia'
 
-    const roomName = `interview-${existing.id}`
     const at = new AccessToken(
       process.env.LIVEKIT_API_KEY!,
       process.env.LIVEKIT_API_SECRET!,
