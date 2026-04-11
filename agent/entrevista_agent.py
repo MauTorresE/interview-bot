@@ -333,6 +333,13 @@ class EntrevistaAgent(Agent):
         # Flag the tool call so the timing loop knows not to also force-close
         self._state.mark_end_tool_called()
 
+        # Wave 1.7: if closing_reason wasn't already set by _force_llm_closing
+        # (e.g., the LLM called end_interview naturally, before enforcement),
+        # record it as 'natural'. Enforcement paths have already set their
+        # own reason value.
+        if self._state.closing_reason is None:
+            self._state.closing_reason = "natural"
+
         # Stage the finalization payload. Delivery is deferred to the
         # agent_state_changed handler (Wave 1.3) which fires when the agent
         # transitions from 'speaking' to 'listening'/'idle' — i.e., when the
@@ -397,6 +404,15 @@ class EntrevistaAgent(Agent):
         self._state.mark_closing_forced()
         self._state.transition_to("closing")
 
+        # Wave 1.7: map internal reason to DB enum value so the completed
+        # interview row records why the closing was forced
+        if reason == "user_requested":
+            self._state.closing_reason = "user_requested"
+        elif reason in ("time_limit_90pct", "idle_timeout"):
+            self._state.closing_reason = "time_up"
+        else:
+            self._state.closing_reason = "time_up"  # default for any future reason values
+
         logger.info(
             f"Interview {self._interview_id}: forcing LLM closing "
             f"(reason={reason}, elapsed={self._state.elapsed_seconds}s)"
@@ -444,9 +460,11 @@ class EntrevistaAgent(Agent):
                 f"{self._state.elapsed_seconds}s"
             )
             self._state.ended = True
+            self._state.closing_reason = "watchdog"
             duration = int(time.time() - self._start_time)
+            fallback_summary = "Gracias por tu tiempo. El equipo preparara tu propuesta."
 
-            # Update DB to completed with fallback summary
+            # Update DB to completed with fallback summary + watchdog reason
             asyncio.create_task(
                 update_interview_status(
                     self._interview_id,
@@ -454,6 +472,8 @@ class EntrevistaAgent(Agent):
                     ended_at=datetime.now(timezone.utc).isoformat(),
                     duration_seconds=duration,
                     topics_count=self._state.topics_count,
+                    closing_summary=fallback_summary,
+                    closing_reason="watchdog",
                 )
             )
 
@@ -734,9 +754,18 @@ async def entrypoint(ctx: JobContext):
             return
         agent._state.ended = True
         duration_s = int(time.time() - agent._start_time)
+
+        # Wave 1.7: pull the summary + reason from agent state so they're
+        # persisted on the interviews row (columns added by migration 006).
+        # Graceful fallback if either is missing.
+        pending = agent._state.pending_finalize or {}
+        closing_summary = pending.get("summary") if isinstance(pending, dict) else None
+        closing_reason = agent._state.closing_reason or "natural"
+
         logger.info(
             f"Interview {interview_id} completing normally "
-            f"(reason={reason}, source={source}, duration={duration_s}s)"
+            f"(reason={reason}, source={source}, duration={duration_s}s, "
+            f"closing_reason={closing_reason}, has_summary={bool(closing_summary)})"
         )
 
         # Update DB first so researchers see the completed state even if aclose races
@@ -747,6 +776,8 @@ async def entrypoint(ctx: JobContext):
                 ended_at=datetime.now(timezone.utc).isoformat(),
                 duration_seconds=duration_s,
                 topics_count=agent._state.topics_count,
+                closing_summary=closing_summary,
+                closing_reason=closing_reason,
             )
         except Exception as e:
             logger.error(f"Failed to update interview status on complete: {e}")

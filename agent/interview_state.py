@@ -45,6 +45,9 @@ class InterviewState:
         self.llm_in_flight: bool = False
         self.pending_finalize: Optional[dict] = None
         self.pending_finalize_delivered: bool = False  # True after first delivery (prevents double-send)
+        # Wave 1.7: track how the interview closed so the DB can record it
+        # (values align with the CHECK constraint in migration 006)
+        self.closing_reason: Optional[str] = None  # 'natural' | 'time_up' | 'user_requested' | 'fallback' | 'watchdog'
 
     # ── Timing properties ───────────────────────────────────────────
 
