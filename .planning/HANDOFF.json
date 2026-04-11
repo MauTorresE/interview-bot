@@ -1,49 +1,95 @@
 {
   "version": "1.0",
-  "timestamp": "2026-04-10T04:13:41.514Z",
-  "phase": "3",
-  "phase_name": "Voice Interview",
+  "timestamp": "2026-04-11T02:52:05.204Z",
+  "phase": "03",
+  "phase_name": "voice-interview",
   "phase_dir": ".planning/phases/03-voice-interview",
-  "plan": 3,
-  "task": null,
-  "total_tasks": null,
+  "plan": "wave-2",
+  "task": "wave-3-gate",
+  "total_tasks": 4,
   "status": "paused",
   "completed_tasks": [
-    {"id": "03-00", "name": "Test scaffold (Vitest + pytest)", "status": "done"},
-    {"id": "03-01", "name": "DB migration + token route + Egress webhook", "status": "done"},
-    {"id": "03-02", "name": "Python LiveKit agent (multi-tenant)", "status": "done"},
-    {"id": "03-03", "name": "Lobby + interview room UI", "status": "done"},
-    {"id": "03-04", "name": "Completion card + respondents tab + transcript viewer", "status": "in_progress", "progress": "Tasks 1-2 complete (auto), Task 3 human-verify checkpoint never closed"}
+    {"id": "wave-0", "name": "Verify LiveKit 1.5.2 API assumptions (agent_state_changed, generate_reply, SpeechHandle)", "status": "done"},
+    {"id": "wave-1.1", "name": "Robust timing loop + _force_llm_closing enforcement", "status": "done", "commit": "a5dbece"},
+    {"id": "wave-1.2", "name": "end_interview stages pending_finalize, unified complete path", "status": "done", "commit": "60ea129"},
+    {"id": "wave-1.3", "name": "agent_state_changed TTS coordination for modal delivery", "status": "done", "commit": "71a9f53"},
+    {"id": "wave-1.4", "name": "FinalizeModal component with TTS-aware button", "status": "done", "commit": "83be31e"},
+    {"id": "wave-1.5", "name": "finalState machine + data channel handlers + fallbacks", "status": "done", "commit": "372df8c"},
+    {"id": "wave-1.6", "name": "Per-speaker live-interim transcript slot", "status": "done", "commit": "0f29782"},
+    {"id": "wave-1.7", "name": "Persist closing_summary + closing_reason (agent-side wiring)", "status": "done", "commit": "95a0a58"},
+    {"id": "wave-2.1", "name": "Unified early-close flow (W-06)", "status": "done", "commit": "6e4c8a3"},
+    {"id": "wave-2.2", "name": "Minimum elapsed guard for end_interview tool", "status": "done", "commit": "7271b9b"},
+    {"id": "wave-2.3", "name": "Modal state persistence via sessionStorage", "status": "done", "commit": "e217a2a"},
+    {"id": "wave-2.4", "name": "AlreadyCompletedCard for revisited links", "status": "done", "commit": "4bad38e"},
+    {"id": "docs-current-system", "name": "CURRENT-SYSTEM.md comprehensive documentation (817 lines)", "status": "done", "commit": "a3e0209"},
+    {"id": "e2e-scaffold", "name": "Playwright E2E pipeline scaffold — 4/4 consent tests passing", "status": "done", "commit": "e90b43a"},
+    {"id": "deploy-vercel-preview", "name": "Vercel preview deploy of 815bee4 (pre-Tier-0 baseline + TS fixes)", "status": "done", "commit": "815bee4 (worktree)"},
+    {"id": "deploy-vercel-env-vars", "name": "Vercel env vars pushed to Preview + Development (6/10 keys; 4 S3 keys missing from .env.local)", "status": "done"}
   ],
   "remaining_tasks": [
-    {"id": "verify-closing", "name": "End-to-end test of tiered closing flow (100% LLM summary, 110% canned, 120% kill)", "status": "not_started"},
-    {"id": "verify-merge", "name": "Validate transcript merging with 12s window in real speech", "status": "not_started"},
-    {"id": "verify-rejoin", "name": "Test rejoin flow across reusable link and room expiry scenarios", "status": "not_started"},
-    {"id": "close-checkpoint", "name": "Close Phase 3 Plan 04 human-verify checkpoint", "status": "not_started"},
-    {"id": "gsd-verify", "name": "Run /gsd-verify-work for Phase 3 completion", "status": "not_started"}
+    {"id": "wave-3.1", "name": "RecoveryCard component + REST /api/interviews/[id]/confirm-end endpoint", "status": "not_started", "estimated_hours": 1},
+    {"id": "wave-3.2", "name": "Agent heartbeat + frontend crash detection", "status": "not_started", "estimated_hours": 1.5},
+    {"id": "wave-3.3", "name": "Mobile Wake Lock + BackgroundedOverlay", "status": "not_started", "estimated_hours": 1},
+    {"id": "wave-4.1", "name": "Multi-tab lock via BroadcastChannel", "status": "not_started", "estimated_hours": 1},
+    {"id": "wave-4.2", "name": "Mic permission recovery + silent detector", "status": "not_started", "estimated_hours": 0.5}
   ],
   "blockers": [
-    {"description": "Context window exhausted during wrap-up before latest closing fixes could be validated end-to-end", "type": "external", "workaround": "Resume with /catch-up, test with 5-min Ximena link in fresh incognito"}
+    {
+      "description": "Supabase migration 006_closing_summary.sql not applied to remote DB",
+      "type": "human_action",
+      "workaround": "Code wraps update_interview_status in try/except so interviews still complete — just without persisting closing_summary/closing_reason columns"
+    },
+    {
+      "description": "Railway CLI requires interactive login; cannot proceed from agent session",
+      "type": "human_action",
+      "workaround": "User runs `railway login` in their terminal, then we relaunch Agent B to push env vars + `railway up`"
+    },
+    {
+      "description": "Tier 0+1 code has NOT been E2E tested with a real interview yet",
+      "type": "external",
+      "workaround": "Requires: (1) Railway agent running, (2) migration 006 applied, (3) user walks through Ximena link in browser. Wave 1+2 is unit-tested (22/22) and typecheck-clean but not validated against real STT/LLM/TTS pipeline."
+    },
+    {
+      "description": "4 Supabase S3 env vars missing from Vercel (SUPABASE_S3_ACCESS_KEY/SECRET/ENDPOINT/REGION)",
+      "type": "human_action",
+      "workaround": "Only needed for LiveKit Egress recording upload. Basic interview flow works without them. Values must come from Supabase dashboard → Storage → S3 Connection."
+    }
   ],
   "human_actions_pending": [
-    {"action": "Test latest closing flow in browser", "context": "Need to verify tiered closing (100/110/120%) works end-to-end with real 5-min interview", "blocking": false},
-    {"action": "Restart Python agent after resume", "context": "Agent was running during session but may have exited. Use: cd agent && python entrevista_agent.py dev", "blocking": false}
+    {
+      "action": "Apply Supabase migration 006_closing_summary.sql via dashboard SQL editor",
+      "context": "https://supabase.com/dashboard/project/xengrpgbrxqwrzmnmllx/sql/new — paste the ALTER TABLE from supabase/migrations/006_closing_summary.sql. MCP Supabase tool timed out, CLI not installed, psql not available.",
+      "blocking": true
+    },
+    {
+      "action": "Run `railway login` in terminal + ping Claude to relaunch Agent B",
+      "context": "Railway CLI refuses non-interactive authentication. Agent B is blocked at this step. All other Railway deploy infrastructure is ready (CLI installed, agent/Dockerfile verified, env var source identified).",
+      "blocking": true
+    },
+    {
+      "action": "E2E smoke test: open https://interview-kkhp1b9a2-not-so-software.vercel.app/interview/9aefb39a-c5ab-4a0e-95c8-0e00022fb83f in fresh incognito (after Railway deploy + migration applied)",
+      "context": "Validates Tier 0+1 happy path: modal closing choreography, per-speaker live transcript, finalizeState machine, already-completed card. Also validates Vercel preview with pushed env vars.",
+      "blocking": false
+    },
+    {
+      "action": "Add 4 missing Supabase S3 env vars to Vercel (optional)",
+      "context": "SUPABASE_S3_ACCESS_KEY, SUPABASE_S3_SECRET_KEY, SUPABASE_S3_ENDPOINT, SUPABASE_S3_REGION. Only needed for LiveKit Egress recording pipeline.",
+      "blocking": false
+    }
   ],
   "decisions": [
-    {"decision": "Use Claude Haiku 4.5 + ephemeral caching as default LLM", "rationale": "~$0.12/interview vs ~$0.95 with Sonnet 4, quality comparable with improved prompt", "phase": "3"},
-    {"decision": "Consultant-role framing for agent, not research interviewer", "rationale": "User needs discovery calls that feed proposals, not academic interviews", "phase": "3"},
-    {"decision": "Use LiveKit RoomEvent.TranscriptionReceived for transcripts (not data channel)", "rationale": "Built-in LiveKit feature matches prototype pattern, handles interim→final updates", "phase": "3"},
-    {"decision": "Override Agent.on_user_turn_completed() as class method (not session event)", "rationale": "LiveKit 1.5.2 does not expose user_turn_completed as session event", "phase": "3"},
-    {"decision": "NO session.say() at 80/90/100% — only system prompt updates", "rationale": "Prevents agent voice overlapping with LLM response generation", "phase": "3"},
-    {"decision": "Tiered closing: 100% LLM closes, 110% canned goodbye, 120% silent kill", "rationale": "Guarantees proper closing UX while preventing runaway calls", "phase": "3"},
-    {"decision": "MXN price ranges ($15K-$35K per phase) instead of USD fixed prices", "rationale": "NSS target market is Mexican small businesses; USD anchors too high", "phase": "3"},
-    {"decision": "Access model: 'Acceso completo + licencia de uso permanente' (not 'dueña del código')", "rationale": "Protects NSS IP for reuse while giving client everything they care about", "phase": "3"},
-    {"decision": "/generate-proposal skill automates proposal generation from Supabase transcripts", "rationale": "Scales the Ximena workflow to future clients", "phase": "3"}
+    {"decision": "Use session.generate_reply(instructions=...) not user_input=... for enforcement", "rationale": "Context7 confirmed instructions= does NOT pollute chat history whereas user_input= adds a synthetic user message. Cleaner log, same bypass of prompt cache.", "phase": "03"},
+    {"decision": "3-tier ladder (80% nudge / 90% enforce / 130% watchdog) not 80/90/100/110/120%", "rationale": "Previous system fought races between LLM, TTS, data channel, teardown. New model: modal is user-confirmed (eliminates race), watchdog only fires if frontend is presumed dead.", "phase": "03"},
+    {"decision": "Remove extension flow entirely in Tier 0 (can re-add as modal button later)", "rationale": "extend_interview tool + state extension tracking was load-bearing fragile code that would collide with new pending_finalize staging. Defer to Tier 2 UX work.", "phase": "03"},
+    {"decision": "Backend agent_state_changed handler delivers pending_finalize on speaking→listening transition", "rationale": "Makes modal appear in the silence AFTER TTS playout completes, not during. 20s timeout fallback if transition never fires. Context7 confirmed event name + payload structure.", "phase": "03"},
+    {"decision": "Per-speaker liveInterim slot (not append) for transcript display", "rationale": "Deepgram emits interim segments with rotating IDs and cumulative text. Previous fix skipped interims entirely (fixed duplication, broke live display). Slot replaces on each interim, commits on final.", "phase": "03"},
+    {"decision": "Monotonic finalizeState machine (idle → showing_modal → finalizing)", "rationale": "Multiple trigger paths (agent-delivered, frontend fallback timer, user-early-click) all funnel through a single requestModal() that's guarded by state.kind === 'idle'. First trigger wins. Prevents race conditions across paths.", "phase": "03"},
+    {"decision": "Worktree-based deploy (.claude/worktrees/deploy-6cca276) for the first Vercel attempt", "rationale": "Kept master free for active Tier 0+1 refactor work. Worktree branch (detached HEAD at 6cca276 + 815bee4) isolated the build-fix patches from master's refactor.", "phase": "03"},
+    {"decision": "Playwright CLI (not MCP) with tests/e2e/ directory and webServer auto-start", "rationale": "User explicit: CI-ready tests that can run from terminal without interactive browser. Voice-pipeline tests marked fixme with unblock strategies.", "phase": "03"},
+    {"decision": "sessionStorage key `interview-finalstate-${inviteToken}` for modal persistence", "rationale": "Scoped by inviteToken (known at both interview-room.tsx writer and interview-flow-wrapper.tsx reader levels). 10-minute TTL prevents stale restoration.", "phase": "03"},
+    {"decision": "closing_reason enum: natural | time_up | user_requested | fallback | watchdog", "rationale": "Covers all 5 closing paths. Enforcement maps internal reason to DB enum (time_limit_90pct / idle_timeout → 'time_up'). LLM-initiated close without enforcement → 'natural'. Watchdog branch → 'watchdog'. Frontend timer fallback reserved as 'fallback' (not currently set from backend side).", "phase": "03"}
   ],
-  "uncommitted_files": [
-    ".planning/journal/2026-04-09.md (new, not yet committed)",
-    ".planning/STATE.md (updated via gsd-tools, not committed)"
-  ],
-  "next_action": "Run /catch-up to load context, then test the Ximena 5-min link (http://localhost:3005/interview/9aefb39a-c5ab-4a0e-95c8-0e00022fb83f) in fresh incognito to validate tiered closing flow",
-  "context_notes": "Phase 3 is functionally complete — agent works, transcripts save, proposal generation skill works. What remains is validating the latest round of closing/merging/rejoin fixes end-to-end. The last tested state was before the final batch of commits (99d7b28 and later). Critical commits to verify: 99d7b28 (graceful tiered closing), 92369f3 (time management), a626231 (generate-proposal skill). Ximena had a successful 22-min interview earlier in session; a full proposal exists at analysis/ximena-corcuera-proposal.html."
+  "uncommitted_files": [],
+  "next_action": "Run `railway login` in a terminal, then /gsd-resume-work. Resume will relaunch the Railway deploy agent with authentication available. First concrete step in the new session: apply Supabase migration 006 via dashboard (takes 30s), then wait for Railway deploy to complete, then manual browser smoke test on https://interview-kkhp1b9a2-not-so-software.vercel.app/interview/9aefb39a-c5ab-4a0e-95c8-0e00022fb83f",
+  "context_notes": "This session shipped a massive Tier 0 + Tier 1 refactor of the voice interview closing flow. 14 commits on master (Waves 1.1-1.7, 2.1-2.4, plus docs, Playwright scaffold, and a checkpoint). Zero TypeScript errors, 22/22 Python unit tests pass. The Vercel preview is live and serving HTTP 200 responses from the pre-refactor baseline (815bee4 on worktree — NOT the current master). Master still needs its first production build verification. Three background subagents ran in parallel this session: Vercel env vars (success), Railway deploy (blocked on login), Playwright scaffold (success). The CURRENT-SYSTEM.md documentation at .planning/phases/03-voice-interview/ is the canonical reference for how the system currently works — a resuming agent should read it FIRST before touching any interview code."
 }
