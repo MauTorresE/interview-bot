@@ -9,10 +9,16 @@ class TestInterviewState:
         assert state.phase == 'warmup'
         assert state.ended == False
         assert state.topics_count == 0
+        # Tier 0 new fields
+        assert state._closing_forced == False
+        assert state._end_tool_called == False
+        assert state._user_requested_end == False
+        assert state.last_user_turn_at is None
+        assert state.llm_in_flight == False
+        assert state.pending_finalize is None
 
     def test_elapsed_seconds(self):
         state = InterviewState(900)
-        # Should be close to 0 at creation
         assert state.elapsed_seconds < 2
 
     def test_elapsed_fraction(self):
@@ -25,6 +31,8 @@ class TestInterviewState:
         ctx = state.time_context
         assert "minutos" in ctx.lower() or "min" in ctx.lower()
         assert "Fase" in ctx or "fase" in ctx
+
+    # ── 80% nudge tier ─────────────────────────────────────────
 
     def test_should_nudge_false_before_80_percent(self):
         state = InterviewState(900)
@@ -43,30 +51,99 @@ class TestInterviewState:
         state.mark_nudged()
         assert state.should_nudge == False
 
-    def test_should_force_close_false_before_95_percent(self):
-        state = InterviewState(900)
-        state.started_at = time.time() - 800  # ~89% elapsed
-        assert state.should_force_close == False
+    # ── 90% enforcement tier ───────────────────────────────────
 
-    def test_should_force_close_true_at_95_percent(self):
+    def test_should_force_closing_false_before_90_percent(self):
         state = InterviewState(900)
-        state.started_at = time.time() - 855  # 95% elapsed
-        assert state.should_force_close == True
+        state.started_at = time.time() - 720  # 80% elapsed
+        assert state.should_force_closing == False
+
+    def test_should_force_closing_true_at_90_percent(self):
+        state = InterviewState(900)
+        state.started_at = time.time() - 810  # 90% elapsed
+        assert state.should_force_closing == True
+
+    def test_should_force_closing_fires_only_once(self):
+        state = InterviewState(900)
+        state.started_at = time.time() - 810  # 90% elapsed
+        assert state.should_force_closing == True
+        state.mark_closing_forced()
+        assert state.should_force_closing == False
+
+    # ── 130% watchdog tier ─────────────────────────────────────
+
+    def test_should_watchdog_close_false_at_100_percent(self):
+        state = InterviewState(900)
+        state.started_at = time.time() - 900  # 100% elapsed
+        assert state.should_watchdog_close == False
+
+    def test_should_watchdog_close_false_at_120_percent(self):
+        state = InterviewState(900)
+        state.started_at = time.time() - 1080  # 120% elapsed
+        assert state.should_watchdog_close == False
+
+    def test_should_watchdog_close_true_at_130_percent(self):
+        state = InterviewState(900)
+        state.started_at = time.time() - 1170  # 130% elapsed
+        assert state.should_watchdog_close == True
+
+    # ── Idle detector ─────────────────────────────────────────
+
+    def test_is_idle_false_without_user_turn(self):
+        state = InterviewState(900, idle_threshold_seconds=180)
+        # No user turn recorded yet — not considered idle
+        assert state.is_idle() == False
+
+    def test_is_idle_false_within_threshold(self):
+        state = InterviewState(900, idle_threshold_seconds=180)
+        state.last_user_turn_at = time.time() - 60  # 1 min ago
+        assert state.is_idle() == False
+
+    def test_is_idle_true_after_threshold(self):
+        state = InterviewState(900, idle_threshold_seconds=180)
+        state.last_user_turn_at = time.time() - 200  # 3:20 ago
+        assert state.is_idle() == True
+
+    def test_touch_user_turn_resets_idle(self):
+        state = InterviewState(900, idle_threshold_seconds=180)
+        state.last_user_turn_at = time.time() - 200  # idle
+        assert state.is_idle() == True
+        state.touch_user_turn()
+        assert state.is_idle() == False
+
+    # ── Phase transitions ─────────────────────────────────────
 
     def test_transition_to_valid_phase(self):
         state = InterviewState(900)
-        state.transition_to('conversation')
+        assert state.transition_to('conversation') == True
         assert state.phase == 'conversation'
-        state.transition_to('closing')
+        assert state.transition_to('closing') == True
         assert state.phase == 'closing'
 
-    def test_transition_to_invalid_phase_raises(self):
+    def test_transition_to_invalid_phase_returns_false(self):
         state = InterviewState(900)
-        with pytest.raises((ValueError, KeyError)):
-            state.transition_to('invalid_phase')
+        original_phase = state.phase
+        assert state.transition_to('invalid_phase') == False
+        assert state.phase == original_phase
+
+    # ── Topic tracking ────────────────────────────────────────
 
     def test_topics_count_increment(self):
         state = InterviewState(900)
         assert state.topics_count == 0
         state.topics_count += 1
         assert state.topics_count == 1
+
+    # ── Flag mutators ─────────────────────────────────────────
+
+    def test_mark_end_tool_called(self):
+        state = InterviewState(900)
+        assert state._end_tool_called == False
+        state.mark_end_tool_called()
+        assert state._end_tool_called == True
+
+    def test_mark_user_requested_end(self):
+        state = InterviewState(900)
+        assert state._user_requested_end == False
+        state.mark_user_requested_end()
+        assert state._user_requested_end == True

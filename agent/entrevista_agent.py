@@ -44,6 +44,34 @@ from supabase_client import (
 logger = logging.getLogger("entrevista-agent")
 logger.setLevel(logging.INFO)
 
+# Canonical forced-closing instruction for time-limit enforcement.
+# Injected via session.generate_reply(instructions=...) which bypasses the
+# Anthropic prompt cache — the mechanism that made update_instructions() unreliable.
+_FORCED_CLOSING_INSTRUCTION = (
+    "[SISTEMA DE TIEMPO] El tiempo de la entrevista esta agotado. "
+    "En tu proxima respuesta, da un resumen breve y personalizado de 2-3 "
+    "oraciones sobre lo que aprendiste de su operacion (menciona temas "
+    "concretos que discutieron), agradece al participante por su tiempo, "
+    "y llama INMEDIATAMENTE la funcion end_interview con ese mismo resumen "
+    "como argumento. NO hagas mas preguntas. NO continues explorando temas. "
+    "Esta es una instruccion del sistema, no del usuario."
+)
+
+# Variant for when the user clicks "Finalizar entrevista" early.
+# Used in Wave 2.1 — defined here so both instructions live together.
+_FORCED_CLOSING_INSTRUCTION_USER_REQUESTED = (
+    "[SISTEMA] El participante ha solicitado cerrar la entrevista ahora mismo. "
+    "Esto es perfectamente normal. En tu proxima respuesta: "
+    "(1) Agradecele calidamente usando su nombre, "
+    "(2) Menciona una o dos cosas concretas que aprendiste sobre su operacion "
+    "    (procesos, herramientas, o fricciones especificas que mencionaron), "
+    "(3) Explica brevemente que con esto el equipo ya puede empezar a preparar una propuesta, "
+    "(4) Despidete con calidez. "
+    "(5) Llama INMEDIATAMENTE la funcion end_interview con ese resumen. "
+    "NO digas 'veo que tienes que irte' ni 'entiendo que no tengas tiempo' — "
+    "simplemente cierra con gracia. NO hagas mas preguntas."
+)
+
 # Voice persona mapping (matches src/lib/constants/campaign.ts)
 VOXTRAL_VOICES = {
     "voxtral-natalia": "0c1cb9a3-5b28-4918-8e5f-99a268c334e3",  # Cloned Mexican Spanish female (from prototype)
@@ -105,16 +133,44 @@ class EntrevistaAgent(Agent):
             f"Interview started: {self._interview_id} with {self._config.respondent_name}"
         )
 
-        # Start background timing loop — checks guardrails every 10s
-        # even when agent is mid-speech (fixes Bug 1: guardrails only on user turns)
-        asyncio.create_task(self._timing_loop())
+        # Start background timing loop — checks guardrails every 5s even when
+        # agent is mid-speech. Keep task reference + done_callback so silent
+        # deaths are observable (fixes the "loop dies silently" bug that caused
+        # the canned goodbye to fire at 144% instead of 110% in prior testing).
+        task = asyncio.create_task(self._timing_loop())
+
+        def _on_done(t: asyncio.Task) -> None:
+            if t.cancelled():
+                return
+            exc = t.exception()
+            if exc is not None:
+                logger.error(
+                    f"Timing loop task exited unexpectedly: {exc}",
+                    exc_info=exc,
+                )
+
+        task.add_done_callback(_on_done)
+        self._timing_task = task  # keep strong reference so GC doesn't collect it
 
     async def _timing_loop(self):
-        """Background task: check timing guardrails every 10 seconds."""
+        """Background task: check timing guardrails every 5 seconds.
+
+        Each iteration is wrapped in try/except so a single failed check never
+        kills the loop. The outer done_callback logs any escape that does occur.
+        """
         while not self._state.ended:
-            await asyncio.sleep(10)
-            if not self._state.ended:
-                self._check_timing_guardrails()
+            try:
+                await asyncio.sleep(5)
+                if self._state.ended:
+                    return
+                await self._check_timing_guardrails()
+            except asyncio.CancelledError:
+                return
+            except Exception as e:
+                logger.error(
+                    f"Timing loop check failed (keeping loop alive): {e}",
+                    exc_info=True,
+                )
 
     async def on_user_turn_completed(self, turn_ctx, new_message=None):
         """Override Agent method — save user transcript to Supabase (matches prototype pattern)."""
@@ -132,8 +188,9 @@ class EntrevistaAgent(Agent):
                 self._interview_id, "client", text.strip(), elapsed_ms
             )
 
-        # Check timing guardrails after every user turn (D-15, D-16)
-        self._check_timing_guardrails()
+        # Track for idle detection and fire guardrail check
+        self._state.touch_user_turn()
+        await self._check_timing_guardrails()
 
     def _on_conversation_item_added(self, event):
         """Save bot transcript entries to Supabase AND send via data channel."""
@@ -245,20 +302,6 @@ class EntrevistaAgent(Agent):
         return f"Transicion a fase: {next_phase}"
 
     @function_tool()
-    async def extend_interview(
-        self,
-        ctx: RunContext,
-    ) -> str:
-        """Extiende la llamada 5 minutos mas. Llama esta funcion cuando el participante acepte extender el tiempo."""
-        if self._state._extended:
-            return "La llamada ya fue extendida anteriormente. No se puede extender de nuevo."
-        self._state.extend(300)  # +5 min
-        self._update_instructions()
-        new_target_min = self._state.duration_target_seconds // 60
-        logger.info(f"Interview {self._interview_id}: extended to {new_target_min} min")
-        return f"Llamada extendida. Nuevo tiempo total: {new_target_min} minutos."
-
-    @function_tool()
     async def end_interview(
         self,
         ctx: RunContext,
@@ -293,76 +336,132 @@ class EntrevistaAgent(Agent):
         )
         return f"Entrevista finalizada. Resumen: {summary}"
 
-    # ── Timing guardrails (D-15, D-16) ─────────────────────────────
+    # ── Timing guardrails (Tier 0 rewrite) ─────────────────────────
 
-    def _check_timing_guardrails(self):
-        """Tiered timing: nudge → extension → force close → hard stop → kill.
+    async def _force_llm_closing(self, reason: str) -> None:
+        """Force the LLM to produce a summary + call end_interview.
 
-        NO session.say() at 80/90/100% — only system prompt updates.
-        The LLM incorporates timing naturally in its next response.
-        session.say() only at 110% as last resort.
+        Uses session.generate_reply(instructions=...) which bypasses the
+        Anthropic ephemeral prompt cache — the mechanism that made
+        update_instructions() unreliable for mid-session behavior changes.
+
+        Idempotent: only fires once per interview (guarded by _closing_forced).
+        Reasons: 'time_limit_90pct', 'idle_timeout', 'user_requested', 'watchdog'.
         """
-        if self._state.should_absolute_kill and not self._state.ended:
-            # 120% — SILENT KILL. Should never reach here.
-            logger.warning(f"Interview {self._interview_id}: ABSOLUTE KILL at {self._state.elapsed_seconds}s")
-            self._state.ended = True
-            try:
-                asyncio.create_task(self.session.aclose())
-            except Exception:
-                pass
+        if self._state._closing_forced:
+            logger.debug(f"Interview {self._interview_id}: closing already forced, skipping ({reason})")
+            return
+        self._state.mark_closing_forced()
+        self._state.transition_to("closing")
 
-        elif self._state.should_hard_stop and not self._state.ended:
-            # 110% — Polite canned goodbye. LLM failed to close in time.
-            logger.info(f"Interview {self._interview_id}: HARD STOP at {self._state.elapsed_seconds}s")
+        logger.info(
+            f"Interview {self._interview_id}: forcing LLM closing "
+            f"(reason={reason}, elapsed={self._state.elapsed_seconds}s)"
+        )
+
+        # Tell the frontend a finalization is in progress (for the wrap-up banner)
+        self._send_data({"type": "finalization_hint"})
+        self._send_data({"type": "phase_change", "phase": "closing"})
+
+        # Pick the right instruction variant (time limit vs user-requested early end)
+        instruction = (
+            _FORCED_CLOSING_INSTRUCTION_USER_REQUESTED
+            if reason == "user_requested"
+            else _FORCED_CLOSING_INSTRUCTION
+        )
+
+        try:
+            # session.generate_reply(instructions=...) injects a per-turn directive
+            # that is NOT recorded in chat history but steers the next generation.
+            # This is the canonical way to reliably steer a cached-prompt LLM.
+            self.session.generate_reply(instructions=instruction)
+        except Exception as e:
+            logger.error(
+                f"Interview {self._interview_id}: generate_reply failed during enforcement: {e}",
+                exc_info=True,
+            )
+
+    async def _check_timing_guardrails(self) -> None:
+        """Tier 0 guardrail ladder: 80% nudge → 90% enforce → idle → 130% watchdog.
+
+        Replaces the old 80/90/100/110/120% system which fought races between
+        LLM generation, TTS playout, data channel delivery, and session teardown.
+
+        The happy path is: 90% enforcement fires _force_llm_closing, LLM produces
+        a summary and calls end_interview, the tool stages pending_finalize, and
+        the modal appears via the agent_state_changed handler (Wave 1.3).
+        """
+        if self._state.ended:
+            return
+
+        # Layer 5 — 130% backend watchdog (covers "frontend is dead" case)
+        if self._state.should_watchdog_close:
+            logger.warning(
+                f"Interview {self._interview_id}: WATCHDOG FORCE CLOSE at "
+                f"{self._state.elapsed_seconds}s"
+            )
             self._state.ended = True
             duration = int(time.time() - self._start_time)
 
-            # Update DB FIRST
+            # Update DB to completed with fallback summary
             asyncio.create_task(
                 update_interview_status(
-                    self._interview_id, "completed",
+                    self._interview_id,
+                    "completed",
                     ended_at=datetime.now(timezone.utc).isoformat(),
-                    duration_seconds=duration, topics_count=self._state.topics_count,
+                    duration_seconds=duration,
+                    topics_count=self._state.topics_count,
                 )
             )
 
-            # Send interview_ended to frontend BEFORE aclose
-            self._send_data({"type": "interview_ended", "duration": duration, "topics_count": self._state.topics_count})
-
-            # Polite canned goodbye — only if not currently speaking
-            self.session.say(
-                "Muchas gracias por tu tiempo. Ha sido una conversacion muy valiosa. "
-                "Con toda esta informacion, el equipo preparara una propuesta personalizada para ti. "
-                "Que tengas excelente dia!"
+            # Fire a last-ditch ready_to_finalize in case frontend is still listening
+            self._send_data(
+                {
+                    "type": "ready_to_finalize",
+                    "summary": "Gracias por tu tiempo. El equipo preparara tu propuesta.",
+                    "duration": duration,
+                    "topics_count": self._state.topics_count,
+                    "source": "watchdog",
+                }
             )
-            # Close after a brief delay to let the goodbye play
-            async def _delayed_close():
-                await asyncio.sleep(8)
+
+            # Give data channel a moment to flush, then close
+            async def _delayed_watchdog_close():
+                await asyncio.sleep(2)
                 try:
                     await self.session.aclose()
-                except Exception:
-                    pass
-            asyncio.create_task(_delayed_close())
+                except Exception as e:
+                    logger.debug(f"Watchdog aclose raised: {e}")
 
-        elif self._state.should_force_close:
-            # 100% — Time's up. LLM must close now (has until 110% to finish).
-            self._state.mark_close_forced()
-            self._state.transition_to("closing")
-            self._update_instructions()  # Prompt now says "URGENTE: CLOSE NOW"
-            self._send_data({"type": "phase_change", "phase": "closing"})
-            logger.info(f"Interview {self._interview_id}: force-close at {self._state.elapsed_seconds}s")
+            asyncio.create_task(_delayed_watchdog_close())
+            return
 
-        elif self._state.should_offer_extension:
-            # 90% — System prompt tells LLM to ask about extension in next response.
-            self._state.mark_extension_offered()
-            self._update_instructions()  # Prompt now says "ask about extension"
-            logger.info(f"Interview {self._interview_id}: extension offer prompted at {self._state.elapsed_seconds}s")
+        # Layer 2 — Idle detector: no user turn for idle_threshold_seconds
+        if (
+            self._state.is_idle()
+            and not self._state._closing_forced
+        ):
+            idle_for = int(time.time() - (self._state.last_user_turn_at or self._state.started_at))
+            logger.info(
+                f"Interview {self._interview_id}: idle for {idle_for}s — forcing closing"
+            )
+            await self._force_llm_closing("idle_timeout")
+            return
 
-        elif self._state.should_nudge:
-            # 80% — System prompt tells LLM to start wrapping up.
+        # Layer 1 — 90% LLM enforcement (main closing trigger)
+        if self._state.should_force_closing:
+            await self._force_llm_closing("time_limit_90pct")
+            return
+
+        # Soft nudge — 80% wrap-up hint (still uses _update_instructions as a
+        # gentle pre-cache-bust signal; hard enforcement happens at 90%)
+        if self._state.should_nudge:
             self._state.mark_nudged()
-            self._update_instructions()  # Prompt now says "start closing"
-            logger.info(f"Interview {self._interview_id}: nudge at {self._state.elapsed_seconds}s")
+            self._update_instructions()
+            logger.info(
+                f"Interview {self._interview_id}: nudge at {self._state.elapsed_seconds}s"
+            )
+            return
 
     # ── Helpers ──────────────────────────────────────────────────────
 
