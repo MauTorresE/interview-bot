@@ -5,7 +5,9 @@ import { ConsentForm } from './consent-form'
 import { LobbyScreen } from './lobby-screen'
 import { InterviewRoom, type PersistedFinalState } from './interview-room'
 import { FinalizeModal } from '@/components/interview/finalize-modal'
-import { Loader2 } from 'lucide-react'
+import { useTabLock } from '@/hooks/use-tab-lock'
+import { Loader2, Info } from 'lucide-react'
+import { Button } from '@/components/ui/button'
 
 type FlowPhase =
   | 'loading'
@@ -54,6 +56,10 @@ export function InterviewFlowWrapper({
 }: Props) {
   const storageKey = `interview-session-${inviteToken}`
   const finalStateKey = `interview-finalstate-${inviteToken}`
+
+  // Wave 4.1: multi-tab lock prevents two tabs from sending audio to the
+  // same LiveKit room simultaneously (causes echo + duplicate transcripts)
+  const { status: tabLockStatus, takeover: takeoverTab } = useTabLock(inviteToken)
 
   // Start with 'loading' to check sessionStorage on client side before showing anything
   const [phase, setPhase] = useState<FlowPhase>(activeInterviewId ? 'rejoining' : 'loading' as FlowPhase)
@@ -215,18 +221,45 @@ export function InterviewFlowWrapper({
   // 300ms fade transitions per D-28
   return (
     <div className="min-h-dvh flex items-center justify-center">
-      {phase === 'loading' && (
+      {/* Wave 4.1: multi-tab lock — show blocker if another tab has the interview */}
+      {tabLockStatus === 'locked_by_other' && (
+        <div className="animate-in fade-in duration-300 ease-out w-full flex items-center justify-center px-4">
+          <div className="max-w-[440px] w-full text-center p-6">
+            <div className="flex justify-center mb-4">
+              <div className="w-12 h-12 rounded-full bg-amber-500/10 flex items-center justify-center">
+                <Info className="size-6 text-amber-500/80" aria-hidden="true" />
+              </div>
+            </div>
+            <h2 className="text-xl font-semibold text-foreground mb-2">
+              Ya estas en otra pestana
+            </h2>
+            <p className="text-sm text-muted-foreground mb-6">
+              Tienes esta entrevista abierta en otra ventana. Para evitar conflictos de audio,
+              solo una puede estar activa a la vez.
+            </p>
+            <div className="flex gap-3 justify-center">
+              <Button variant="outline" onClick={() => window.close()}>
+                Cerrar esta pestana
+              </Button>
+              <Button onClick={takeoverTab}>
+                Tomar el control aqui
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+      {tabLockStatus !== 'locked_by_other' && phase === 'loading' && (
         <div className="flex flex-col items-center gap-3 text-muted-foreground">
           <Loader2 className="size-6 animate-spin" />
         </div>
       )}
-      {phase === 'rejoining' && (
+      {tabLockStatus !== 'locked_by_other' && phase === 'rejoining' && (
         <div className="flex flex-col items-center gap-3 text-muted-foreground">
           <Loader2 className="size-6 animate-spin" />
           <p className="text-sm">Reconectando a tu entrevista...</p>
         </div>
       )}
-      {phase === 'consent' && (
+      {tabLockStatus !== 'locked_by_other' && phase === 'consent' && (
         <div
           key="consent"
           className="animate-in fade-in duration-300 ease-out w-full flex items-center justify-center px-4"
@@ -239,7 +272,7 @@ export function InterviewFlowWrapper({
           />
         </div>
       )}
-      {phase === 'lobby' && session && (
+      {tabLockStatus !== 'locked_by_other' && phase === 'lobby' && session && (
         <div
           key="lobby"
           className="animate-in fade-in duration-300 ease-out w-full"
@@ -254,7 +287,7 @@ export function InterviewFlowWrapper({
           />
         </div>
       )}
-      {phase === 'interview' && session && (
+      {tabLockStatus !== 'locked_by_other' && phase === 'interview' && session && (
         <div
           key="interview"
           className="animate-in fade-in duration-300 ease-out w-full"

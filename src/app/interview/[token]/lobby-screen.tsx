@@ -11,6 +11,7 @@ import {
 } from '@/components/ui/select'
 import { Button } from '@/components/ui/button'
 import { MicLevelMeter } from '@/components/interview/mic-level-meter'
+import { MicPermissionHelper, SilentMicHelper } from '@/components/interview/mic-permission-helper'
 import { Loader2 } from 'lucide-react'
 import type { InterviewSession } from './interview-flow-wrapper'
 
@@ -26,6 +27,8 @@ export function LobbyScreen({ session, campaignName, onStart }: LobbyScreenProps
   const [activeDeviceId, setActiveDeviceId] = useState<string>('')
   const [volume, setVolume] = useState(0)
   const [micError, setMicError] = useState<string | null>(null)
+  const [micDenied, setMicDenied] = useState(false) // Wave 4.2: distinct from generic error
+  const [showSilentHelper, setShowSilentHelper] = useState(false) // Wave 4.2: no audio for 7s
   const micEverDetected = useRef(false)
 
   const streamRef = useRef<MediaStream | null>(null)
@@ -48,11 +51,27 @@ export function LobbyScreen({ session, campaignName, onStart }: LobbyScreenProps
           setActiveDeviceId(audioInputs[0].deviceId)
         }
       } catch (err) {
-        setMicError('Necesitamos acceso a tu microfono para la entrevista. Permite el acceso en la configuracion de tu navegador.')
+        // Wave 4.2: distinguish permission denied from other errors
+        if (err instanceof DOMException && err.name === 'NotAllowedError') {
+          setMicDenied(true)
+        }
+        setMicError('Necesitamos acceso a tu microfono para la entrevista.')
       }
     }
     loadDevices()
   }, [])
+
+  // Wave 4.2: silent mic detector — if mic is granted but no audio detected
+  // after 7 seconds, show the SilentMicHelper checklist.
+  useEffect(() => {
+    if (micError || micDenied) return
+    const t = setTimeout(() => {
+      if (!micEverDetected.current) {
+        setShowSilentHelper(true)
+      }
+    }, 7000)
+    return () => clearTimeout(t)
+  }, [micError, micDenied, activeDeviceId])
 
   // Start mic monitoring when device changes
   useEffect(() => {
@@ -171,7 +190,26 @@ export function LobbyScreen({ session, campaignName, onStart }: LobbyScreenProps
 
           {/* Mic device selector */}
           <div className="flex flex-col gap-3">
-            {micError ? (
+            {micDenied ? (
+              /* Wave 4.2: browser-specific recovery instructions */
+              <MicPermissionHelper
+                onRetry={async () => {
+                  setMicError(null)
+                  setMicDenied(false)
+                  try {
+                    const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+                    stream.getTracks().forEach((t) => t.stop())
+                    const allDevices = await navigator.mediaDevices.enumerateDevices()
+                    const audioInputs = allDevices.filter((d) => d.kind === 'audioinput')
+                    setDevices(audioInputs)
+                    if (audioInputs.length > 0) setActiveDeviceId(audioInputs[0].deviceId)
+                  } catch {
+                    setMicDenied(true)
+                    setMicError('Necesitamos acceso a tu microfono para la entrevista.')
+                  }
+                }}
+              />
+            ) : micError ? (
               <p className="text-sm text-destructive">{micError}</p>
             ) : (
               <>
@@ -193,6 +231,11 @@ export function LobbyScreen({ session, campaignName, onStart }: LobbyScreenProps
 
                 {/* Mic level meter */}
                 <MicLevelMeter volume={volume} />
+
+                {/* Wave 4.2: silent mic helper — shown after 7s with no audio */}
+                {showSilentHelper && (
+                  <SilentMicHelper onDismiss={() => setShowSilentHelper(false)} />
+                )}
               </>
             )}
           </div>
