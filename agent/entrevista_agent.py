@@ -155,6 +155,16 @@ class EntrevistaAgent(Agent):
         task.add_done_callback(_on_done)
         self._timing_task = task  # keep strong reference so GC doesn't collect it
 
+        # Wave 3.2: heartbeat loop — publish a heartbeat data message every 5s
+        # so the frontend can detect agent crashes (no heartbeat for 25s → show
+        # RecoveryCard with "agent_unresponsive" variant).
+        hb_task = asyncio.create_task(self._heartbeat_loop())
+        hb_task.add_done_callback(
+            lambda t: logger.error(f"Heartbeat task exited: {t.exception()}")
+            if not t.cancelled() and t.exception() else None
+        )
+        self._heartbeat_task = hb_task
+
     async def _timing_loop(self):
         """Background task: check timing guardrails every 5 seconds.
 
@@ -174,6 +184,31 @@ class EntrevistaAgent(Agent):
                     f"Timing loop check failed (keeping loop alive): {e}",
                     exc_info=True,
                 )
+
+    async def _heartbeat_loop(self):
+        """Wave 3.2: publish heartbeat every 5s so frontend can detect crashes.
+
+        The frontend tracks lastHeartbeatAt — if no heartbeat arrives for 25s
+        while the room is connected and finalization hasn't started, it shows
+        a RecoveryCard with variant="agent_unresponsive".
+        """
+        seq = 0
+        while not self._state.ended:
+            try:
+                self._send_data({
+                    "type": "heartbeat",
+                    "seq": seq,
+                    "ts_ms": int(time.time() * 1000),
+                    "elapsed_s": self._state.elapsed_seconds,
+                    "phase": self._state.phase,
+                })
+                seq += 1
+                await asyncio.sleep(5)
+            except asyncio.CancelledError:
+                return
+            except Exception as e:
+                logger.debug(f"Heartbeat send failed: {e}")
+                await asyncio.sleep(5)
 
     async def on_user_turn_completed(self, turn_ctx, new_message=None):
         """Override Agent method — save user transcript to Supabase (matches prototype pattern)."""

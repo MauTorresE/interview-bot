@@ -17,7 +17,6 @@ import {
   type TranscriptionSegment,
   type TrackPublication,
 } from 'livekit-client'
-import { toast } from 'sonner'
 import { Mic, MicOff } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { InterviewOrb } from '@/components/interview/interview-orb'
@@ -26,6 +25,8 @@ import { TranscriptFeed, type TranscriptEntry } from '@/components/interview/tra
 import { TextFallbackInput } from '@/components/interview/text-fallback-input'
 import { InterviewTimer } from '@/components/interview/interview-timer'
 import { FinalizeModal } from '@/components/interview/finalize-modal'
+import { RecoveryCard, type RecoveryVariant } from '@/components/interview/recovery-card'
+import { useInterviewPresence } from '@/hooks/use-interview-presence'
 import type { InterviewSession } from './interview-flow-wrapper'
 
 type InterviewRoomProps = {
@@ -99,6 +100,18 @@ function InterviewRoomContent({ session, inviteToken, onInterviewEnd }: Intervie
     bot?: TranscriptEntry
     client?: TranscriptEntry
   }>({})
+
+  // Wave 3.1: recovery overlay state. Replaces dead-end toasts with an
+  // actionable RecoveryCard when the connection degrades beyond reconnection.
+  const [recoveryVariant, setRecoveryVariant] = useState<RecoveryVariant | null>(null)
+
+  // Wave 3.2: agent heartbeat tracking. The Python agent publishes a heartbeat
+  // every 5s. If we don't receive one for 25s while connected and not finalizing,
+  // we show the agent_unresponsive recovery card.
+  const lastHeartbeatAt = useRef<number>(Date.now())
+
+  // Wave 3.3: wake lock + tab visibility tracking for mobile resilience
+  const { isBackgrounded } = useInterviewPresence()
 
   /**
    * Request the modal to be shown. Monotonic: only fires when state is idle.
@@ -291,7 +304,13 @@ function InterviewRoomContent({ session, inviteToken, onInterviewEnd }: Intervie
         const text = new TextDecoder().decode(payload)
         const data = JSON.parse(text)
 
-        if (data.type === 'phase_change' && data.phase) {
+        if (data.type === 'heartbeat') {
+          // Wave 3.2: update heartbeat tracker + clear agent_unresponsive
+          lastHeartbeatAt.current = Date.now()
+          if (recoveryVariant === 'agent_unresponsive') {
+            setRecoveryVariant(null)
+          }
+        } else if (data.type === 'phase_change' && data.phase) {
           setPhase(data.phase as ConversationPhase)
         } else if (data.type === 'finalization_hint') {
           setShowWrapupBanner(true)
@@ -405,57 +424,79 @@ function InterviewRoomContent({ session, inviteToken, onInterviewEnd }: Intervie
     return () => clearInterval(interval)
   }, [])
 
-  // Connection state handling (D-11) + ensure mic is enabled on connect/reconnect
+  // Wave 3.2: heartbeat watchdog — check every 5s if the agent has gone silent.
+  // If no heartbeat for 25s while connected and not in finalization, show the
+  // agent_unresponsive recovery card. Clears automatically when a heartbeat
+  // arrives (handled in the data channel listener above).
+  useEffect(() => {
+    const id = setInterval(() => {
+      const gap = Date.now() - lastHeartbeatAt.current
+      if (
+        gap > 25_000 &&
+        connectionState === ConnectionState.Connected &&
+        finalizeState.kind === 'idle' &&
+        recoveryVariant !== 'agent_unresponsive'
+      ) {
+        setRecoveryVariant('agent_unresponsive')
+      }
+    }, 5000)
+    return () => clearInterval(id)
+  }, [connectionState, finalizeState.kind, recoveryVariant])
+
+  // Connection state handling (D-11) + ensure mic is enabled on connect/reconnect.
+  //
+  // Wave 3.1: replaced dead-end toasts with RecoveryCard overlays. The user
+  // now gets actionable buttons (Retry / Save & Exit) instead of a static
+  // error toast they can't do anything with.
   useEffect(() => {
     if (connectionState === ConnectionState.Connected && localParticipant) {
       // Ensure mic is publishing (handles rejoin where audio={true} didn't auto-publish)
       localParticipant.setMicrophoneEnabled(true).catch(() => {})
+      // Clear any recovery overlay on successful (re)connection
+      setRecoveryVariant(null)
     }
     if (
       prevConnectionState.current === ConnectionState.Connected &&
       connectionState === ConnectionState.Reconnecting
     ) {
-      toast.warning('Se perdio la conexion. Intentando reconectar...')
+      setRecoveryVariant('reconnecting')
     }
     if (
       prevConnectionState.current === ConnectionState.Reconnecting &&
       connectionState === ConnectionState.Disconnected
     ) {
-      // If we've been talking for >2 min, treat disconnect as interview end (not error)
-      if (elapsedSeconds > 120) {
-        onInterviewEnd({
-          duration: elapsedSeconds,
-          topicsCount: 0,
-        })
+      // If finalize flow already owns the UI, let it handle teardown
+      if (finalizeState.kind !== 'idle') {
+        // noop — handleConfirmFinalize's 4s fallback will transition
+      } else if (elapsedSeconds > 120) {
+        // Long interview disconnect — show network_lost with save option
+        setRecoveryVariant('network_lost')
       } else {
-        toast.error(
-          'No se pudo reconectar. La entrevista fue guardada hasta este punto.',
-          { duration: Infinity }
-        )
+        setRecoveryVariant('network_lost')
       }
     }
-    // Also handle direct Connected → Disconnected (agent hard-stopped the session)
+    // Direct Connected → Disconnected (agent hard-stopped the session)
     if (
       prevConnectionState.current === ConnectionState.Connected &&
-      connectionState === ConnectionState.Disconnected &&
-      elapsedSeconds > 120
+      connectionState === ConnectionState.Disconnected
     ) {
-      onInterviewEnd({
-        duration: elapsedSeconds,
-        topicsCount: 0,
-      })
+      if (finalizeState.kind !== 'idle') {
+        // Finalize flow owns it — expected disconnect after user_confirmed_end
+      } else if (elapsedSeconds > 120) {
+        onInterviewEnd({ duration: elapsedSeconds, topicsCount: 0 })
+      } else {
+        setRecoveryVariant('network_lost')
+      }
     }
     prevConnectionState.current = connectionState
-  }, [connectionState, localParticipant])
+  }, [connectionState, localParticipant, finalizeState.kind, elapsedSeconds, onInterviewEnd])
 
   // Text input handler
   function handleSendText(text: string) {
     const payload = new TextEncoder().encode(
       JSON.stringify({ type: 'text_input', text })
     )
-    room.localParticipant.publishData(payload, { reliable: true }).catch(() => {
-      toast.error('No se pudo enviar el mensaje.')
-    })
+    room.localParticipant.publishData(payload, { reliable: true }).catch(() => {})
   }
 
   // Mic toggle using LiveKit's standard API
@@ -473,6 +514,9 @@ function InterviewRoomContent({ session, inviteToken, onInterviewEnd }: Intervie
   // A 4s hard fallback forces the local UI transition if the backend doesn't
   // disconnect us — covers the case where the data message was lost or the
   // Python agent crashed mid-confirmation.
+  // Wave 3.1: dual-channel confirm — fires both data channel AND REST API
+  // so at least one path marks the interview completed in the DB, even if
+  // the LiveKit connection is degraded or the agent has crashed.
   function handleConfirmFinalize() {
     // Cancel the 90s auto-click timer — we're taking over
     if (autoClickTimerRef.current) {
@@ -482,12 +526,20 @@ function InterviewRoomContent({ session, inviteToken, onInterviewEnd }: Intervie
 
     setFinalizeState({ kind: 'finalizing' })
 
+    // Channel 1: data channel (reaches the live agent if connected)
     const payload = new TextEncoder().encode(
       JSON.stringify({ type: 'user_confirmed_end', at: Date.now() })
     )
     room.localParticipant
       .publishData(payload, { reliable: true })
       .catch(() => {})
+
+    // Channel 2: REST fallback (marks completed in DB even if agent is dead)
+    fetch(`/api/interviews/${session.interviewId}/confirm-end`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ duration: elapsedSeconds }),
+    }).catch(() => {})
 
     // Hard fallback: if the backend doesn't close the session within 4s,
     // force the local UI transition anyway. Clean UX > stuck spinner.
@@ -497,6 +549,28 @@ function InterviewRoomContent({ session, inviteToken, onInterviewEnd }: Intervie
     hardFallbackTimerRef.current = setTimeout(() => {
       onInterviewEnd({ duration: elapsedSeconds, topicsCount: 0 })
     }, 4000)
+  }
+
+  // Wave 3.1: recovery card action handlers
+  function handleRecoveryRetry() {
+    setRecoveryVariant(null)
+    // Force room reconnect by re-enabling mic (triggers LiveKit internal reconnect)
+    if (localParticipant) {
+      localParticipant.setMicrophoneEnabled(true).catch(() => {})
+    }
+  }
+
+  function handleRecoverySave() {
+    // Mark interview completed via REST and transition to completion card
+    fetch(`/api/interviews/${session.interviewId}/confirm-end`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        duration: elapsedSeconds,
+        reason: 'network_interrupted',
+      }),
+    }).catch(() => {})
+    onInterviewEnd({ duration: elapsedSeconds, topicsCount: 0 })
   }
 
   // Wave 2.1: user clicks "Finalizar entrevista" early.
@@ -582,6 +656,20 @@ function InterviewRoomContent({ session, inviteToken, onInterviewEnd }: Intervie
           onConfirm={handleConfirmFinalize}
           confirming={finalizeState.kind === 'finalizing'}
         />
+      )}
+
+      {/* Wave 3.1: recovery overlay for connection failures */}
+      {recoveryVariant && finalizeState.kind === 'idle' && (
+        <RecoveryCard
+          variant={recoveryVariant}
+          onPrimary={handleRecoveryRetry}
+          onSecondary={handleRecoverySave}
+        />
+      )}
+
+      {/* Wave 3.3: backgrounded overlay for mobile tab-switch / screen-lock */}
+      {isBackgrounded && finalizeState.kind === 'idle' && !recoveryVariant && (
+        <RecoveryCard variant="backgrounded" />
       )}
 
       {/* Top region: Orb + Phase */}

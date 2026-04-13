@@ -179,12 +179,32 @@ export function InterviewFlowWrapper({
   // the 90% watchdog, or the 130% watchdog) OR is still holding the room
   // until emptyTimeout runs out. Either way, we transition the local UI to
   // the completion card with whatever data we have.
+  // Wave 3.1: restored modal confirm now fires REST fallback to ensure DB
+  // is marked completed even when there's no live LiveKit room to send
+  // user_confirmed_end through the data channel.
   function handleRestoredFinalConfirm() {
     setRestoreConfirming(true)
     try {
       sessionStorage.removeItem(finalStateKey)
       sessionStorage.removeItem(storageKey)
     } catch { /* ignore */ }
+
+    // REST fallback — mark completed in DB (idempotent, safe if already done)
+    const savedSession = (() => {
+      try {
+        const s = sessionStorage.getItem(storageKey)
+        return s ? JSON.parse(s) : null
+      } catch { return null }
+    })()
+    const interviewId = savedSession?.interviewId || session?.interviewId
+    if (interviewId) {
+      fetch(`/api/interviews/${interviewId}/confirm-end`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ duration: 0 }),
+      }).catch(() => {})
+    }
+
     // Brief pause for the spinner to render before the phase transition
     setTimeout(() => {
       setCompletionData({ duration: 0, topicsCount: 0 })
