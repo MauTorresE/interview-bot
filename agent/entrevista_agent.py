@@ -44,6 +44,34 @@ from supabase_client import (
 logger = logging.getLogger("entrevista-agent")
 logger.setLevel(logging.INFO)
 
+# Canonical forced-closing instruction for time-limit enforcement.
+# Injected via session.generate_reply(instructions=...) which bypasses the
+# Anthropic prompt cache — the mechanism that made update_instructions() unreliable.
+_FORCED_CLOSING_INSTRUCTION = (
+    "[SISTEMA DE TIEMPO] El tiempo de la entrevista esta agotado. "
+    "En tu proxima respuesta, da un resumen breve y personalizado de 2-3 "
+    "oraciones sobre lo que aprendiste de su operacion (menciona temas "
+    "concretos que discutieron), agradece al participante por su tiempo, "
+    "y llama INMEDIATAMENTE la funcion end_interview con ese mismo resumen "
+    "como argumento. NO hagas mas preguntas. NO continues explorando temas. "
+    "Esta es una instruccion del sistema, no del usuario."
+)
+
+# Variant for when the user clicks "Finalizar entrevista" early.
+# Used in Wave 2.1 — defined here so both instructions live together.
+_FORCED_CLOSING_INSTRUCTION_USER_REQUESTED = (
+    "[SISTEMA] El participante ha solicitado cerrar la entrevista ahora mismo. "
+    "Esto es perfectamente normal. En tu proxima respuesta: "
+    "(1) Agradecele calidamente usando su nombre, "
+    "(2) Menciona una o dos cosas concretas que aprendiste sobre su operacion "
+    "    (procesos, herramientas, o fricciones especificas que mencionaron), "
+    "(3) Explica brevemente que con esto el equipo ya puede empezar a preparar una propuesta, "
+    "(4) Despidete con calidez. "
+    "(5) Llama INMEDIATAMENTE la funcion end_interview con ese resumen. "
+    "NO digas 'veo que tienes que irte' ni 'entiendo que no tengas tiempo' — "
+    "simplemente cierra con gracia. NO hagas mas preguntas."
+)
+
 # Voice persona mapping (matches src/lib/constants/campaign.ts)
 VOXTRAL_VOICES = {
     "voxtral-natalia": "0c1cb9a3-5b28-4918-8e5f-99a268c334e3",  # Cloned Mexican Spanish female (from prototype)
@@ -74,6 +102,9 @@ class EntrevistaAgent(Agent):
         self._config = config
         self._state = state
         self._start_time = time.time()
+        # Wave 1.3: track agent state transitions to deliver pending_finalize
+        # in the silence AFTER the TTS playout completes (speaking → listening/idle)
+        self._last_agent_state: str = "initializing"
 
     # ── Lifecycle hooks ─────────────────────────────────────────────
 
@@ -105,16 +136,79 @@ class EntrevistaAgent(Agent):
             f"Interview started: {self._interview_id} with {self._config.respondent_name}"
         )
 
-        # Start background timing loop — checks guardrails every 10s
-        # even when agent is mid-speech (fixes Bug 1: guardrails only on user turns)
-        asyncio.create_task(self._timing_loop())
+        # Start background timing loop — checks guardrails every 5s even when
+        # agent is mid-speech. Keep task reference + done_callback so silent
+        # deaths are observable (fixes the "loop dies silently" bug that caused
+        # the canned goodbye to fire at 144% instead of 110% in prior testing).
+        task = asyncio.create_task(self._timing_loop())
+
+        def _on_done(t: asyncio.Task) -> None:
+            if t.cancelled():
+                return
+            exc = t.exception()
+            if exc is not None:
+                logger.error(
+                    f"Timing loop task exited unexpectedly: {exc}",
+                    exc_info=exc,
+                )
+
+        task.add_done_callback(_on_done)
+        self._timing_task = task  # keep strong reference so GC doesn't collect it
+
+        # Wave 3.2: heartbeat loop — publish a heartbeat data message every 5s
+        # so the frontend can detect agent crashes (no heartbeat for 25s → show
+        # RecoveryCard with "agent_unresponsive" variant).
+        hb_task = asyncio.create_task(self._heartbeat_loop())
+        hb_task.add_done_callback(
+            lambda t: logger.error(f"Heartbeat task exited: {t.exception()}")
+            if not t.cancelled() and t.exception() else None
+        )
+        self._heartbeat_task = hb_task
 
     async def _timing_loop(self):
-        """Background task: check timing guardrails every 10 seconds."""
+        """Background task: check timing guardrails every 5 seconds.
+
+        Each iteration is wrapped in try/except so a single failed check never
+        kills the loop. The outer done_callback logs any escape that does occur.
+        """
         while not self._state.ended:
-            await asyncio.sleep(10)
-            if not self._state.ended:
-                self._check_timing_guardrails()
+            try:
+                await asyncio.sleep(5)
+                if self._state.ended:
+                    return
+                await self._check_timing_guardrails()
+            except asyncio.CancelledError:
+                return
+            except Exception as e:
+                logger.error(
+                    f"Timing loop check failed (keeping loop alive): {e}",
+                    exc_info=True,
+                )
+
+    async def _heartbeat_loop(self):
+        """Wave 3.2: publish heartbeat every 5s so frontend can detect crashes.
+
+        The frontend tracks lastHeartbeatAt — if no heartbeat arrives for 25s
+        while the room is connected and finalization hasn't started, it shows
+        a RecoveryCard with variant="agent_unresponsive".
+        """
+        seq = 0
+        while not self._state.ended:
+            try:
+                self._send_data({
+                    "type": "heartbeat",
+                    "seq": seq,
+                    "ts_ms": int(time.time() * 1000),
+                    "elapsed_s": self._state.elapsed_seconds,
+                    "phase": self._state.phase,
+                })
+                seq += 1
+                await asyncio.sleep(5)
+            except asyncio.CancelledError:
+                return
+            except Exception as e:
+                logger.debug(f"Heartbeat send failed: {e}")
+                await asyncio.sleep(5)
 
     async def on_user_turn_completed(self, turn_ctx, new_message=None):
         """Override Agent method — save user transcript to Supabase (matches prototype pattern)."""
@@ -132,8 +226,9 @@ class EntrevistaAgent(Agent):
                 self._interview_id, "client", text.strip(), elapsed_ms
             )
 
-        # Check timing guardrails after every user turn (D-15, D-16)
-        self._check_timing_guardrails()
+        # Track for idle detection and fire guardrail check
+        self._state.touch_user_turn()
+        await self._check_timing_guardrails()
 
     def _on_conversation_item_added(self, event):
         """Save bot transcript entries to Supabase AND send via data channel."""
@@ -245,30 +340,203 @@ class EntrevistaAgent(Agent):
         return f"Transicion a fase: {next_phase}"
 
     @function_tool()
-    async def extend_interview(
-        self,
-        ctx: RunContext,
-    ) -> str:
-        """Extiende la llamada 5 minutos mas. Llama esta funcion cuando el participante acepte extender el tiempo."""
-        if self._state._extended:
-            return "La llamada ya fue extendida anteriormente. No se puede extender de nuevo."
-        self._state.extend(300)  # +5 min
-        self._update_instructions()
-        new_target_min = self._state.duration_target_seconds // 60
-        logger.info(f"Interview {self._interview_id}: extended to {new_target_min} min")
-        return f"Llamada extendida. Nuevo tiempo total: {new_target_min} minutos."
-
-    @function_tool()
     async def end_interview(
         self,
         ctx: RunContext,
         summary: str,
     ) -> str:
-        """Termina la entrevista. Llama esta funcion despues de dar el resumen final y despedirte."""
-        self._state.ended = True
+        """Termina la entrevista con un resumen personalizado.
+
+        El resumen DEBE incluir: (1) nombre del participante si esta disponible,
+        (2) dos observaciones especificas sobre su operacion con herramientas,
+        procesos o numeros concretos que mencionaron, (3) mencion breve del
+        proximo paso (el equipo preparara una propuesta), (4) cierre calido.
+        Minimo 3 oraciones, maximo 4. NO uses frases genericas vacias.
+
+        IMPORTANTE: Esta funcion NO termina la llamada inmediatamente. En lugar
+        de eso, presenta al usuario un modal para que el confirme el cierre.
+        Tu debes decir el resumen en voz alta en la misma respuesta donde llamas
+        esta funcion — el modal aparece mientras el usuario termina de escuchar
+        tu voz.
+        """
         duration = int(time.time() - self._start_time)
+        frac = self._state.elapsed_fraction
+
+        # Wave 2.2: minimum elapsed guard.
+        #
+        # Prevents the LLM from calling end_interview prematurely due to
+        # mis-interpreting a user's "let's wrap up" or "I'm done" as an
+        # actual finalization request. If the interview is less than 60%
+        # elapsed AND fewer than 2 topics are documented, reject the tool
+        # call and instruct the LLM to keep going.
+        #
+        # Bypass conditions:
+        #   1. User explicitly clicked "Finalizar entrevista" early — the
+        #      user's explicit request trumps the guard (their time, their
+        #      call)
+        #   2. _closing_forced is True — enforcement was already fired at
+        #      90% or idle-timeout, so the time constraint was legitimately
+        #      met via a different path
+        if (
+            frac < 0.60
+            and self._state.topics_count < 2
+            and not self._state._user_requested_end
+            and not self._state._closing_forced
+        ):
+            logger.info(
+                f"Interview {self._interview_id}: end_interview REJECTED as premature "
+                f"(frac={frac:.2f}, topics={self._state.topics_count}, summary_len={len(summary)})"
+            )
+            return (
+                f"ERROR: No puedes cerrar la entrevista aun. "
+                f"Solo llevas {int(frac*100)}% del tiempo y {self._state.topics_count} "
+                f"temas documentados. Necesitas al menos 60% del tiempo Y 2 temas "
+                f"documentados (via note_theme) antes de cerrar. Continua la entrevista: "
+                f"profundiza en el tema actual con cuantificacion y ejemplos concretos, "
+                f"o transiciona a una nueva area de descubrimiento. NO intentes cerrar "
+                f"de nuevo hasta que hayas cubierto mas material."
+            )
+
+        logger.info(
+            f"Interview {self._interview_id}: end_interview tool called "
+            f"(elapsed={duration}s, topics={self._state.topics_count}, summary_len={len(summary)})"
+        )
+
+        # Flag the tool call so the timing loop knows not to also force-close
+        self._state.mark_end_tool_called()
+
+        # Wave 1.7: if closing_reason wasn't already set by _force_llm_closing
+        # (e.g., the LLM called end_interview naturally, before enforcement),
+        # record it as 'natural'. Enforcement paths have already set their
+        # own reason value.
+        if self._state.closing_reason is None:
+            self._state.closing_reason = "natural"
+
+        # Stage the finalization payload. Delivery is deferred to the
+        # agent_state_changed handler (Wave 1.3) which fires when the agent
+        # transitions from 'speaking' to 'listening'/'idle' — i.e., when the
+        # TTS playout of THIS response finishes. That way the modal appears
+        # in the silence AFTER the user hears the goodbye, not during it.
+        payload = {
+            "type": "ready_to_finalize",
+            "summary": summary,
+            "duration": duration,
+            "topics_count": self._state.topics_count,
+            "source": "agent",
+        }
+        self._state.pending_finalize = payload
+        self._state.pending_finalize_delivered = False
+        self._send_data({"type": "finalization_hint"})  # frontend wrap-up banner
+
+        # Fallback: if agent_state_changed doesn't fire within 20s, deliver
+        # pending_finalize anyway. Covers TTS provider failures, unexpected
+        # state transitions, or any other timing weirdness. 20s is generous —
+        # longest summaries clock in around 12-15s of TTS.
+        async def _deliver_finalize_fallback():
+            await asyncio.sleep(20)
+            if (
+                self._state.pending_finalize
+                and not self._state.pending_finalize_delivered
+                and not self._state.ended
+            ):
+                logger.warning(
+                    f"Interview {self._interview_id}: agent_state_changed timeout — "
+                    "delivering pending_finalize via fallback"
+                )
+                self._state.pending_finalize_delivered = True
+                self._send_data(self._state.pending_finalize)
+
+        asyncio.create_task(_deliver_finalize_fallback())
+
+        # Do NOT mark state.ended = True here — wait for user_confirmed_end.
+        # Do NOT call session.aclose() here — wait for user_confirmed_end.
+        # The agent stays alive so the TTS playout of the summary completes
+        # naturally. The actual teardown happens when the user clicks the
+        # Finalizar button in the modal (handled in on_data via user_confirmed_end).
+        return (
+            "Modal de finalizacion mostrado al usuario. "
+            "La llamada continuara hasta que el participante confirme el cierre."
+        )
+
+    # ── Timing guardrails (Tier 0 rewrite) ─────────────────────────
+
+    async def _force_llm_closing(self, reason: str) -> None:
+        """Force the LLM to produce a summary + call end_interview.
+
+        Uses session.generate_reply(instructions=...) which bypasses the
+        Anthropic ephemeral prompt cache — the mechanism that made
+        update_instructions() unreliable for mid-session behavior changes.
+
+        Idempotent: only fires once per interview (guarded by _closing_forced).
+        Reasons: 'time_limit_90pct', 'idle_timeout', 'user_requested', 'watchdog'.
+        """
+        if self._state._closing_forced:
+            logger.debug(f"Interview {self._interview_id}: closing already forced, skipping ({reason})")
+            return
+        self._state.mark_closing_forced()
+        self._state.transition_to("closing")
+
+        # Wave 1.7: map internal reason to DB enum value so the completed
+        # interview row records why the closing was forced
+        if reason == "user_requested":
+            self._state.closing_reason = "user_requested"
+        elif reason in ("time_limit_90pct", "idle_timeout"):
+            self._state.closing_reason = "time_up"
+        else:
+            self._state.closing_reason = "time_up"  # default for any future reason values
+
+        logger.info(
+            f"Interview {self._interview_id}: forcing LLM closing "
+            f"(reason={reason}, elapsed={self._state.elapsed_seconds}s)"
+        )
+
+        # Tell the frontend a finalization is in progress (for the wrap-up banner)
+        self._send_data({"type": "finalization_hint"})
+        self._send_data({"type": "phase_change", "phase": "closing"})
+
+        # Pick the right instruction variant (time limit vs user-requested early end)
+        instruction = (
+            _FORCED_CLOSING_INSTRUCTION_USER_REQUESTED
+            if reason == "user_requested"
+            else _FORCED_CLOSING_INSTRUCTION
+        )
 
         try:
+            # session.generate_reply(instructions=...) injects a per-turn directive
+            # that is NOT recorded in chat history but steers the next generation.
+            # This is the canonical way to reliably steer a cached-prompt LLM.
+            self.session.generate_reply(instructions=instruction)
+        except Exception as e:
+            logger.error(
+                f"Interview {self._interview_id}: generate_reply failed during enforcement: {e}",
+                exc_info=True,
+            )
+
+    async def _check_timing_guardrails(self) -> None:
+        """Tier 0 guardrail ladder: 80% nudge → 90% enforce → idle → 130% watchdog.
+
+        Replaces the old 80/90/100/110/120% system which fought races between
+        LLM generation, TTS playout, data channel delivery, and session teardown.
+
+        The happy path is: 90% enforcement fires _force_llm_closing, LLM produces
+        a summary and calls end_interview, the tool stages pending_finalize, and
+        the modal appears via the agent_state_changed handler (Wave 1.3).
+        """
+        if self._state.ended:
+            return
+
+        # Layer 5 — 130% backend watchdog (covers "frontend is dead" case)
+        if self._state.should_watchdog_close:
+            logger.warning(
+                f"Interview {self._interview_id}: WATCHDOG FORCE CLOSE at "
+                f"{self._state.elapsed_seconds}s"
+            )
+            self._state.ended = True
+            self._state.closing_reason = "watchdog"
+            duration = int(time.time() - self._start_time)
+            fallback_summary = "Gracias por tu tiempo. El equipo preparara tu propuesta."
+
+            # Update DB to completed with fallback summary + watchdog reason
             asyncio.create_task(
                 update_interview_status(
                     self._interview_id,
@@ -276,93 +544,59 @@ class EntrevistaAgent(Agent):
                     ended_at=datetime.now(timezone.utc).isoformat(),
                     duration_seconds=duration,
                     topics_count=self._state.topics_count,
-                )
-            )
-        except Exception as e:
-            logger.error(f"Failed to update interview status on end: {e}")
-
-        self._send_data(
-            {
-                "type": "interview_ended",
-                "duration": duration,
-                "topics_count": self._state.topics_count,
-            }
-        )
-        logger.info(
-            f"Interview {self._interview_id} ended. Duration: {duration}s, Topics: {self._state.topics_count}"
-        )
-        return f"Entrevista finalizada. Resumen: {summary}"
-
-    # ── Timing guardrails (D-15, D-16) ─────────────────────────────
-
-    def _check_timing_guardrails(self):
-        """Tiered timing: nudge → extension → force close → hard stop → kill.
-
-        NO session.say() at 80/90/100% — only system prompt updates.
-        The LLM incorporates timing naturally in its next response.
-        session.say() only at 110% as last resort.
-        """
-        if self._state.should_absolute_kill and not self._state.ended:
-            # 120% — SILENT KILL. Should never reach here.
-            logger.warning(f"Interview {self._interview_id}: ABSOLUTE KILL at {self._state.elapsed_seconds}s")
-            self._state.ended = True
-            try:
-                asyncio.create_task(self.session.aclose())
-            except Exception:
-                pass
-
-        elif self._state.should_hard_stop and not self._state.ended:
-            # 110% — Polite canned goodbye. LLM failed to close in time.
-            logger.info(f"Interview {self._interview_id}: HARD STOP at {self._state.elapsed_seconds}s")
-            self._state.ended = True
-            duration = int(time.time() - self._start_time)
-
-            # Update DB FIRST
-            asyncio.create_task(
-                update_interview_status(
-                    self._interview_id, "completed",
-                    ended_at=datetime.now(timezone.utc).isoformat(),
-                    duration_seconds=duration, topics_count=self._state.topics_count,
+                    closing_summary=fallback_summary,
+                    closing_reason="watchdog",
                 )
             )
 
-            # Send interview_ended to frontend BEFORE aclose
-            self._send_data({"type": "interview_ended", "duration": duration, "topics_count": self._state.topics_count})
-
-            # Polite canned goodbye — only if not currently speaking
-            self.session.say(
-                "Muchas gracias por tu tiempo. Ha sido una conversacion muy valiosa. "
-                "Con toda esta informacion, el equipo preparara una propuesta personalizada para ti. "
-                "Que tengas excelente dia!"
+            # Fire a last-ditch ready_to_finalize in case frontend is still listening
+            self._send_data(
+                {
+                    "type": "ready_to_finalize",
+                    "summary": "Gracias por tu tiempo. El equipo preparara tu propuesta.",
+                    "duration": duration,
+                    "topics_count": self._state.topics_count,
+                    "source": "watchdog",
+                }
             )
-            # Close after a brief delay to let the goodbye play
-            async def _delayed_close():
-                await asyncio.sleep(8)
+
+            # Give data channel a moment to flush, then close
+            async def _delayed_watchdog_close():
+                await asyncio.sleep(2)
                 try:
                     await self.session.aclose()
-                except Exception:
-                    pass
-            asyncio.create_task(_delayed_close())
+                except Exception as e:
+                    logger.debug(f"Watchdog aclose raised: {e}")
 
-        elif self._state.should_force_close:
-            # 100% — Time's up. LLM must close now (has until 110% to finish).
-            self._state.mark_close_forced()
-            self._state.transition_to("closing")
-            self._update_instructions()  # Prompt now says "URGENTE: CLOSE NOW"
-            self._send_data({"type": "phase_change", "phase": "closing"})
-            logger.info(f"Interview {self._interview_id}: force-close at {self._state.elapsed_seconds}s")
+            asyncio.create_task(_delayed_watchdog_close())
+            return
 
-        elif self._state.should_offer_extension:
-            # 90% — System prompt tells LLM to ask about extension in next response.
-            self._state.mark_extension_offered()
-            self._update_instructions()  # Prompt now says "ask about extension"
-            logger.info(f"Interview {self._interview_id}: extension offer prompted at {self._state.elapsed_seconds}s")
+        # Layer 2 — Idle detector: no user turn for idle_threshold_seconds
+        if (
+            self._state.is_idle()
+            and not self._state._closing_forced
+        ):
+            idle_for = int(time.time() - (self._state.last_user_turn_at or self._state.started_at))
+            logger.info(
+                f"Interview {self._interview_id}: idle for {idle_for}s — forcing closing"
+            )
+            await self._force_llm_closing("idle_timeout")
+            return
 
-        elif self._state.should_nudge:
-            # 80% — System prompt tells LLM to start wrapping up.
+        # Layer 1 — 90% LLM enforcement (main closing trigger)
+        if self._state.should_force_closing:
+            await self._force_llm_closing("time_limit_90pct")
+            return
+
+        # Soft nudge — 80% wrap-up hint (still uses _update_instructions as a
+        # gentle pre-cache-bust signal; hard enforcement happens at 90%)
+        if self._state.should_nudge:
             self._state.mark_nudged()
-            self._update_instructions()  # Prompt now says "start closing"
-            logger.info(f"Interview {self._interview_id}: nudge at {self._state.elapsed_seconds}s")
+            self._update_instructions()
+            logger.info(
+                f"Interview {self._interview_id}: nudge at {self._state.elapsed_seconds}s"
+            )
+            return
 
     # ── Helpers ──────────────────────────────────────────────────────
 
@@ -515,14 +749,57 @@ async def entrypoint(ctx: JobContext):
         except Exception as e:
             logger.error(f"conversation_item_added handler error: {e}")
 
+    # Wave 1.3 — agent_state_changed handler for TTS-coordinated modal delivery.
+    #
+    # When end_interview tool fires, it stages pending_finalize in agent._state
+    # but does NOT send the ready_to_finalize data message. This handler watches
+    # for the agent's state to transition from 'speaking' to 'listening'/'idle'
+    # — which happens when the TTS playout of the current turn completes — and
+    # THEN delivers the modal. Result: the modal appears in the silence after
+    # the user hears the goodbye, not during it.
+    #
+    # If this handler never fires (TTS stuck, unexpected state, etc.), the 20s
+    # fallback task scheduled in end_interview still delivers the payload.
+    @session.on("agent_state_changed")
+    def on_agent_state_changed(ev):
+        try:
+            # Be defensive about attribute names across LiveKit Agents versions
+            new_state = getattr(ev, "new_state", None) or getattr(ev, "state", None)
+            if not new_state:
+                return
+            new_state_str = str(new_state)
+            old_state_str = agent._last_agent_state
+            agent._last_agent_state = new_state_str
+
+            logger.debug(
+                f"Interview {interview_id}: agent_state_changed {old_state_str} → {new_state_str}"
+            )
+
+            # Deliver pending_finalize when TTS playout of the end_interview
+            # turn completes (speaking → listening/idle transition)
+            if (
+                agent._state.pending_finalize
+                and not agent._state.pending_finalize_delivered
+                and old_state_str == "speaking"
+                and new_state_str in ("listening", "idle")
+            ):
+                logger.info(
+                    f"Interview {interview_id}: agent_state_changed "
+                    f"{old_state_str}→{new_state_str} — delivering pending_finalize"
+                )
+                agent._state.pending_finalize_delivered = True
+                agent._send_data(agent._state.pending_finalize)
+        except Exception as e:
+            logger.error(f"agent_state_changed handler error: {e}", exc_info=True)
+
     # Handle session close
     @session.on("close")
     def on_close(event):
         duration = int(time.time() - agent._start_time)
         if agent._state.ended:
-            # Agent explicitly ended interview (via end_interview tool) — mark completed
+            # Agent explicitly ended interview (via user_confirmed_end or watchdog) — mark completed
             logger.info(f"Interview {interview_id} completed normally. Duration: {duration}s")
-            # Status already set to 'completed' by end_interview tool
+            # Status already set to 'completed' by the path that set state.ended
         else:
             # Unexpected disconnect (browser refresh, network drop) — keep as 'active'
             # so the rejoin flow can reconnect within the room's emptyTimeout (300s)
@@ -530,23 +807,121 @@ async def entrypoint(ctx: JobContext):
 
     await session.start(agent=agent, room=ctx.room)
 
-    # Listen for text messages from the data channel (T-03-08: parse in try/catch)
+    # ── Data channel listener ──────────────────────────────────────
+    #
+    # Message types handled (Tier 0 + Tier 1):
+    #   text_input           — user typed text fallback (forwarded to LLM)
+    #   user_confirmed_end   — user clicked "Finalizar" in the modal (main happy path)
+    #   user_requested_end   — user clicked "Finalizar entrevista" button early (Wave 2.1)
+    #   sync_request         — frontend re-attaching after reconnect wants pending payload
+    #   end_interview        — legacy "Terminar" button (kept for backward compat during rollout)
+
+    async def _complete_interview(reason: str, source: str = "user") -> None:
+        """Mark interview complete, flush DB, send final data msg, then aclose.
+
+        Single shared path used by user_confirmed_end, user_requested_end (fallback),
+        and the legacy end_interview data message. Idempotent via state.ended guard.
+        """
+        if agent._state.ended:
+            return
+        agent._state.ended = True
+        duration_s = int(time.time() - agent._start_time)
+
+        # Wave 1.7: pull the summary + reason from agent state so they're
+        # persisted on the interviews row (columns added by migration 006).
+        # Graceful fallback if either is missing.
+        pending = agent._state.pending_finalize or {}
+        closing_summary = pending.get("summary") if isinstance(pending, dict) else None
+        closing_reason = agent._state.closing_reason or "natural"
+
+        logger.info(
+            f"Interview {interview_id} completing normally "
+            f"(reason={reason}, source={source}, duration={duration_s}s, "
+            f"closing_reason={closing_reason}, has_summary={bool(closing_summary)})"
+        )
+
+        # Update DB first so researchers see the completed state even if aclose races
+        try:
+            await update_interview_status(
+                interview_id,
+                "completed",
+                ended_at=datetime.now(timezone.utc).isoformat(),
+                duration_seconds=duration_s,
+                topics_count=agent._state.topics_count,
+                closing_summary=closing_summary,
+                closing_reason=closing_reason,
+            )
+        except Exception as e:
+            logger.error(f"Failed to update interview status on complete: {e}")
+
+        # Send a final interview_ended message (kept for frontend backward compat)
+        agent._send_data(
+            {
+                "type": "interview_ended",
+                "duration": duration_s,
+                "topics_count": agent._state.topics_count,
+                "reason": reason,
+            }
+        )
+
+        # Give the data channel a brief moment to flush before tearing down the room
+        await asyncio.sleep(0.5)
+        try:
+            await session.aclose()
+        except Exception as e:
+            logger.debug(f"session.aclose during complete raised: {e}")
+
     @ctx.room.on("data_received")
     def on_data(data_packet):
         try:
             payload = json.loads(data_packet.data.decode())
-            if payload.get("type") == "text_input":
-                text = payload.get("text", "").strip()
-                if text:
-                    logger.info(f"Text input received: {text[:100]}")
-                    asyncio.create_task(
-                        session.generate_reply(user_input=text)
-                    )
-            elif payload.get("type") == "end_interview":
-                logger.info("End interview requested by user")
-                asyncio.create_task(session.aclose())
         except Exception as e:
             logger.debug(f"Data channel parse error: {e}")
+            return
+
+        ptype = payload.get("type")
+
+        if ptype == "text_input":
+            text = payload.get("text", "").strip()
+            if text:
+                logger.info(f"Text input received: {text[:100]}")
+                asyncio.create_task(session.generate_reply(user_input=text))
+
+        elif ptype == "user_confirmed_end":
+            # Main happy path: user clicked Finalizar in the modal
+            logger.info(f"Interview {interview_id}: user_confirmed_end received")
+            asyncio.create_task(_complete_interview("user_confirmed_end", source="modal"))
+
+        elif ptype == "user_requested_end":
+            # Wave 2.1: user clicked "Finalizar entrevista" early — triggers the
+            # same closing flow as the 90% enforcement but with a warmer instruction
+            # variant. If _force_llm_closing fails to actually produce a summary,
+            # the frontend will still get a fallback modal via its own client-side
+            # timer and can then send user_confirmed_end.
+            logger.info(f"Interview {interview_id}: user_requested_end received")
+            agent._state.mark_user_requested_end()
+            asyncio.create_task(agent._force_llm_closing("user_requested"))
+
+        elif ptype == "sync_request":
+            # Frontend is reconnecting — re-send any pending finalize payload
+            # so the modal can re-appear without waiting for another tool call.
+            # Explicit re-request bypasses the pending_finalize_delivered guard.
+            if agent._state.pending_finalize:
+                logger.info(f"Interview {interview_id}: re-sending pending_finalize on sync_request")
+                agent._state.pending_finalize_delivered = True
+                agent._send_data(agent._state.pending_finalize)
+
+        elif ptype == "end_interview":
+            # Legacy "Terminar entrevista" hard-kill path. During Tier 0/1 rollout
+            # we keep this functional as a safety valve — any frontend not yet
+            # updated to the new modal flow still gets a clean teardown instead
+            # of a stuck session. Wave 2.1 will repoint the UI button at
+            # user_requested_end instead.
+            logger.info(f"Interview {interview_id}: legacy end_interview received")
+            asyncio.create_task(_complete_interview("legacy_end_interview", source="legacy"))
+
+        else:
+            logger.debug(f"Unknown data channel message type: {ptype}")
 
 
 if __name__ == "__main__":

@@ -10,41 +10,131 @@ import {
   useConnectionState,
   useRoomContext,
 } from '@livekit/components-react'
-import { ConnectionState, RoomEvent, type RemoteParticipant, type TranscriptionSegment } from 'livekit-client'
-import { toast } from 'sonner'
+import {
+  ConnectionState,
+  RoomEvent,
+  type Participant,
+  type TranscriptionSegment,
+  type TrackPublication,
+} from 'livekit-client'
 import { Mic, MicOff } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from '@/components/ui/alert-dialog'
 import { InterviewOrb } from '@/components/interview/interview-orb'
 import { PhaseIndicator } from '@/components/interview/phase-indicator'
 import { TranscriptFeed, type TranscriptEntry } from '@/components/interview/transcript-feed'
 import { TextFallbackInput } from '@/components/interview/text-fallback-input'
 import { InterviewTimer } from '@/components/interview/interview-timer'
+import { FinalizeModal } from '@/components/interview/finalize-modal'
+import { RecoveryCard, type RecoveryVariant } from '@/components/interview/recovery-card'
+import { useInterviewPresence } from '@/hooks/use-interview-presence'
 import type { InterviewSession } from './interview-flow-wrapper'
 
 type InterviewRoomProps = {
   session: InterviewSession
+  inviteToken: string
   onInterviewEnd: (data: { duration: number; topicsCount: number }) => void
+}
+
+/**
+ * Shape of the finalization state persisted to sessionStorage (Wave 2.3).
+ * Stored under `interview-finalstate-${inviteToken}` whenever finalizeState
+ * transitions to a non-idle kind. Recovered on mount by interview-flow-wrapper
+ * so refresh during the modal is a non-event — the modal reappears immediately
+ * with the same summary text.
+ */
+export type PersistedFinalState = {
+  version: 1
+  kind: 'showing_modal' | 'finalizing'
+  summary: string
+  source: 'agent' | 'frontend_fallback' | 'user_early'
+  shownAt: number
+  savedAt: number
 }
 
 type ConversationPhase = 'warmup' | 'conversation' | 'closing'
 
-function InterviewRoomContent({ session, onInterviewEnd }: InterviewRoomProps) {
+/**
+ * Monotonic finalization state machine (Wave 1.5).
+ *
+ * Transitions: idle → showing_modal → finalizing → (unmount via onInterviewEnd)
+ *
+ * Multiple trigger paths call requestModal() but only the first one wins:
+ *   - Agent-delivered via ready_to_finalize data message (happy path, source='agent')
+ *   - Frontend 100% client-side timer fallback (source='frontend_fallback')
+ *   - User clicking the early-close button (Wave 2.1, source='user_early')
+ *
+ * Once in showing_modal, a 90s auto-click fallback guarantees forward progress
+ * even if the user ignores the modal. Once in finalizing, a 4s hard timeout
+ * forces onInterviewEnd locally if the agent hasn't closed us by then.
+ */
+type FinalizeState =
+  | { kind: 'idle' }
+  | {
+      kind: 'showing_modal'
+      summary: string
+      source: 'agent' | 'frontend_fallback' | 'user_early'
+      shownAt: number
+    }
+  | { kind: 'finalizing' }
+
+function InterviewRoomContent({ session, inviteToken, onInterviewEnd }: InterviewRoomProps) {
   const [phase, setPhase] = useState<ConversationPhase>('warmup')
   const [entries, setEntries] = useState<TranscriptEntry[]>([])
   const [elapsedSeconds, setElapsedSeconds] = useState(0)
   const [isMuted, setIsMuted] = useState(false)
   const prevConnectionState = useRef<ConnectionState>(ConnectionState.Connecting)
+
+  // Wave 1.5: monotonic finalization state machine
+  const [finalizeState, setFinalizeState] = useState<FinalizeState>({ kind: 'idle' })
+  const [showWrapupBanner, setShowWrapupBanner] = useState(false)
+  const autoClickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const hardFallbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // Wave 1.6: per-speaker live interim slot. Deepgram STT emits interim
+  // segments with rotating ids, so we can't treat them as part of the
+  // committed entries list (would duplicate as "A A B A B C"). Instead we
+  // store the latest interim per speaker here and render it as a fading
+  // overlay at the bottom of the transcript. When a final segment arrives,
+  // we commit it to `entries` and clear the slot.
+  const [liveInterim, setLiveInterim] = useState<{
+    bot?: TranscriptEntry
+    client?: TranscriptEntry
+  }>({})
+
+  // Wave 3.1: recovery overlay state. Replaces dead-end toasts with an
+  // actionable RecoveryCard when the connection degrades beyond reconnection.
+  const [recoveryVariant, setRecoveryVariant] = useState<RecoveryVariant | null>(null)
+
+  // Wave 3.2: agent heartbeat tracking. The Python agent publishes a heartbeat
+  // every 5s. If we don't receive one for 25s while connected and not finalizing,
+  // we show the agent_unresponsive recovery card.
+  const lastHeartbeatAt = useRef<number>(Date.now())
+
+  // Wave 3.3: wake lock + tab visibility tracking for mobile resilience
+  const { isBackgrounded } = useInterviewPresence()
+
+  /**
+   * Request the modal to be shown. Monotonic: only fires when state is idle.
+   * All trigger paths (agent data msg, frontend fallback timer, early-close button)
+   * funnel through this so duplicate requests are no-ops.
+   */
+  const requestModal = useCallback(
+    (payload: {
+      summary: string
+      source: 'agent' | 'frontend_fallback' | 'user_early'
+    }) => {
+      setFinalizeState((prev) => {
+        if (prev.kind !== 'idle') return prev
+        return {
+          kind: 'showing_modal',
+          summary: payload.summary,
+          source: payload.source,
+          shownAt: Date.now(),
+        }
+      })
+    },
+    []
+  )
 
   const targetSeconds = session.campaignInfo.duration * 60
 
@@ -96,23 +186,69 @@ function InterviewRoomContent({ session, onInterviewEnd }: InterviewRoomProps) {
   // Raw data channel via room context (matches prototype pattern)
   const room = useRoomContext()
 
-  // Listen for LiveKit built-in transcription events (matching prototype pattern)
+  // Listen for LiveKit built-in transcription events.
+  //
+  // Wave 1.6: per-speaker live interim slot pattern.
+  //
+  // Deepgram STT emits interim segments with rotating ids (each interim chunk
+  // may have a new seg.id AND cumulative text like "A" → "A B" → "A B C").
+  // My previous fix skipped all non-final segments to prevent duplication,
+  // which correctly eliminated the "A A B A B C" bug but broke live display —
+  // transcripts only appeared after VAD endpoint (1.5s of silence).
+  //
+  // The new approach tracks a single in-flight interim per speaker in a
+  // dedicated `liveInterim` state. Each interim update REPLACES the slot
+  // instead of appending. When a final segment arrives, it commits to the
+  // `entries` list and clears the slot. The TranscriptFeed renders committed
+  // entries plus any active slots at the bottom with reduced opacity.
   useEffect(() => {
     function onTranscriptionReceived(
       segments: TranscriptionSegment[],
-      participant?: RemoteParticipant
+      participant?: Participant,
+      _publication?: TrackPublication,
     ) {
+      // Identify the bot: either its identity starts with "agent" (LiveKit
+      // agent naming convention) or it's not the local participant at all.
+      // Using Participant (the common parent of RemoteParticipant and
+      // LocalParticipant) makes the comparison type-safe.
       const isBot = participant?.identity?.startsWith('agent') ||
-        (participant && participant !== room.localParticipant)
+        (!!participant && participant.identity !== room.localParticipant.identity)
 
       for (const seg of segments) {
         if (!seg.text?.trim()) continue
         const speaker: 'bot' | 'client' = isBot ? 'bot' : 'client'
         const stableId = `${speaker}-${seg.id}`
+        const currentMs = elapsedSeconds * 1000
+
+        if (!seg.final) {
+          // Interim segment — goes to the live slot for this speaker.
+          // REPLACES whatever was there (cumulative text overwrites).
+          // When a new id arrives with different text, this naturally
+          // discards the old interim without appending anything.
+          setLiveInterim((prev) => ({
+            ...prev,
+            [speaker]: {
+              id: `interim-${speaker}`,
+              speaker,
+              content: seg.text,
+              elapsedMs: currentMs,
+            },
+          }))
+          continue
+        }
+
+        // Final segment — clear the live slot for this speaker and commit
+        // to entries. Done in separate setState calls so React can batch them.
+        setLiveInterim((prev) => {
+          if (!prev[speaker]) return prev
+          const next = { ...prev }
+          delete next[speaker]
+          return next
+        })
 
         setEntries((prev) => {
-          // Always update in place if this exact segment id already exists
-          // (covers interim → final updates where id is stable)
+          // Update in place if this exact segment id already exists (rare
+          // but safe — some LiveKit paths emit the same id twice).
           const existingIdx = prev.findIndex((m) => m.id === stableId)
           if (existingIdx >= 0) {
             const updated = [...prev]
@@ -120,17 +256,10 @@ function InterviewRoomContent({ session, onInterviewEnd }: InterviewRoomProps) {
             return updated
           }
 
-          // For non-final (interim) segments with a new id, skip instead of
-          // merging — Deepgram can emit interim chunks with cumulative text
-          // and rotating ids, which would cause duplication if concatenated.
-          if (!seg.final) {
-            return prev
-          }
-
-          // Final segment, new id: merge with previous entry if same speaker
-          // within 12s, otherwise append as new entry.
+          // Merge with the previous entry if same speaker and within 12s.
+          // This keeps consecutive same-speaker utterances from each arriving
+          // Deepgram final segment grouped into one logical turn.
           const lastEntry = prev[prev.length - 1]
-          const currentMs = elapsedSeconds * 1000
           if (
             lastEntry &&
             lastEntry.speaker === speaker &&
@@ -144,6 +273,7 @@ function InterviewRoomContent({ session, onInterviewEnd }: InterviewRoomProps) {
             return updated
           }
 
+          // Otherwise append as a new entry.
           return [
             ...prev,
             {
@@ -157,18 +287,52 @@ function InterviewRoomContent({ session, onInterviewEnd }: InterviewRoomProps) {
       }
     }
 
-    // Data channel for non-transcript messages (phase_change, interview_ended)
+    // Data channel for non-transcript messages.
+    //
+    // Wave 1.5 adds handlers for the Tier 0 modal closing flow:
+    //   phase_change        — conversation phase sync (existing)
+    //   finalization_hint   — show the top wrap-up banner (agent entering closing)
+    //   ready_to_finalize   — request the modal with a summary from the agent
+    //   interview_ended     — legacy teardown message, still supported. When the
+    //                         finalize flow has already owned the UI (showing_modal
+    //                         or finalizing), this is just the expected post-
+    //                         confirmation signal — we let the 4s hard-fallback
+    //                         in handleConfirmFinalize transition the UI instead
+    //                         of double-firing onInterviewEnd here.
     function onDataReceived(payload: Uint8Array) {
       try {
         const text = new TextDecoder().decode(payload)
         const data = JSON.parse(text)
 
-        if (data.type === 'phase_change' && data.phase) {
+        if (data.type === 'heartbeat') {
+          // Wave 3.2: update heartbeat tracker + clear agent_unresponsive
+          lastHeartbeatAt.current = Date.now()
+          if (recoveryVariant === 'agent_unresponsive') {
+            setRecoveryVariant(null)
+          }
+        } else if (data.type === 'phase_change' && data.phase) {
           setPhase(data.phase as ConversationPhase)
+        } else if (data.type === 'finalization_hint') {
+          setShowWrapupBanner(true)
+        } else if (data.type === 'ready_to_finalize') {
+          requestModal({
+            summary: typeof data.summary === 'string' && data.summary.trim()
+              ? data.summary
+              : 'Gracias por tu tiempo.',
+            source: 'agent',
+          })
         } else if (data.type === 'interview_ended') {
-          onInterviewEnd({
-            duration: data.duration ?? 0,
-            topicsCount: data.topics_count ?? 0,
+          // If the finalize machine is already active, let it run its course
+          // (handleConfirmFinalize has its own 4s hard fallback to onInterviewEnd).
+          // Otherwise this is a legacy backend path — transition directly.
+          setFinalizeState((prev) => {
+            if (prev.kind === 'idle') {
+              onInterviewEnd({
+                duration: data.duration ?? 0,
+                topicsCount: data.topics_count ?? 0,
+              })
+            }
+            return prev
           })
         }
       } catch {
@@ -182,7 +346,75 @@ function InterviewRoomContent({ session, onInterviewEnd }: InterviewRoomProps) {
       room.off(RoomEvent.TranscriptionReceived, onTranscriptionReceived)
       room.off(RoomEvent.DataReceived, onDataReceived)
     }
-  }, [room, onInterviewEnd, elapsedSeconds])
+  }, [room, onInterviewEnd, elapsedSeconds, requestModal])
+
+  // Wave 1.5: frontend client-side fallback timer at 100% elapsed.
+  // If the agent hasn't delivered ready_to_finalize by the time the target
+  // duration is reached, show the modal with a generic summary. This is the
+  // "backend is dead" safety net — runs even if the Python agent has crashed.
+  useEffect(() => {
+    if (finalizeState.kind !== 'idle') return
+    if (targetSeconds > 0 && elapsedSeconds >= targetSeconds) {
+      requestModal({
+        summary:
+          'Gracias por tu tiempo. Con esta conversación tenemos suficiente información para preparar una propuesta personalizada.',
+        source: 'frontend_fallback',
+      })
+    }
+  }, [elapsedSeconds, targetSeconds, finalizeState.kind, requestModal])
+
+  // Wave 2.3: persist finalizeState to sessionStorage so a browser refresh
+  // during the modal is a non-event. The parent InterviewFlowWrapper checks
+  // this key on mount and, if present and fresh (<10 min), renders a
+  // standalone <FinalizeModal> without reconnecting to LiveKit — the user
+  // clicks Finalizar and transitions straight to the completion card.
+  //
+  // Cleared on transition to idle (never happens — machine is monotonic)
+  // or by the parent's onInterviewEnd handler after confirm.
+  useEffect(() => {
+    const key = `interview-finalstate-${inviteToken}`
+    if (finalizeState.kind === 'idle') {
+      try { sessionStorage.removeItem(key) } catch { /* ignore */ }
+      return
+    }
+    const payload: PersistedFinalState = {
+      version: 1,
+      kind: finalizeState.kind,
+      summary:
+        finalizeState.kind === 'showing_modal' ? finalizeState.summary : '',
+      source:
+        finalizeState.kind === 'showing_modal' ? finalizeState.source : 'agent',
+      shownAt:
+        finalizeState.kind === 'showing_modal'
+          ? finalizeState.shownAt
+          : Date.now(),
+      savedAt: Date.now(),
+    }
+    try {
+      sessionStorage.setItem(key, JSON.stringify(payload))
+    } catch { /* ignore */ }
+  }, [finalizeState, inviteToken])
+
+  // Wave 1.5: 90-second auto-click fallback. If the modal has been visible
+  // for 90 seconds with no user click (e.g., user walked away, notification
+  // covering the screen), automatically fire the confirm flow so the session
+  // teardown completes cleanly.
+  useEffect(() => {
+    if (finalizeState.kind !== 'showing_modal') return
+    const id = setTimeout(() => {
+      handleConfirmFinalize()
+    }, 90_000)
+    autoClickTimerRef.current = id
+    return () => {
+      clearTimeout(id)
+      if (autoClickTimerRef.current === id) {
+        autoClickTimerRef.current = null
+      }
+    }
+    // handleConfirmFinalize is stable within a render but referenced by the
+    // linter — we intentionally only re-run on state kind change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [finalizeState.kind])
 
   // Elapsed time counter
   useEffect(() => {
@@ -192,57 +424,79 @@ function InterviewRoomContent({ session, onInterviewEnd }: InterviewRoomProps) {
     return () => clearInterval(interval)
   }, [])
 
-  // Connection state handling (D-11) + ensure mic is enabled on connect/reconnect
+  // Wave 3.2: heartbeat watchdog — check every 5s if the agent has gone silent.
+  // If no heartbeat for 25s while connected and not in finalization, show the
+  // agent_unresponsive recovery card. Clears automatically when a heartbeat
+  // arrives (handled in the data channel listener above).
+  useEffect(() => {
+    const id = setInterval(() => {
+      const gap = Date.now() - lastHeartbeatAt.current
+      if (
+        gap > 25_000 &&
+        connectionState === ConnectionState.Connected &&
+        finalizeState.kind === 'idle' &&
+        recoveryVariant !== 'agent_unresponsive'
+      ) {
+        setRecoveryVariant('agent_unresponsive')
+      }
+    }, 5000)
+    return () => clearInterval(id)
+  }, [connectionState, finalizeState.kind, recoveryVariant])
+
+  // Connection state handling (D-11) + ensure mic is enabled on connect/reconnect.
+  //
+  // Wave 3.1: replaced dead-end toasts with RecoveryCard overlays. The user
+  // now gets actionable buttons (Retry / Save & Exit) instead of a static
+  // error toast they can't do anything with.
   useEffect(() => {
     if (connectionState === ConnectionState.Connected && localParticipant) {
       // Ensure mic is publishing (handles rejoin where audio={true} didn't auto-publish)
       localParticipant.setMicrophoneEnabled(true).catch(() => {})
+      // Clear any recovery overlay on successful (re)connection
+      setRecoveryVariant(null)
     }
     if (
       prevConnectionState.current === ConnectionState.Connected &&
       connectionState === ConnectionState.Reconnecting
     ) {
-      toast.warning('Se perdio la conexion. Intentando reconectar...')
+      setRecoveryVariant('reconnecting')
     }
     if (
       prevConnectionState.current === ConnectionState.Reconnecting &&
       connectionState === ConnectionState.Disconnected
     ) {
-      // If we've been talking for >2 min, treat disconnect as interview end (not error)
-      if (elapsedSeconds > 120) {
-        onInterviewEnd({
-          duration: elapsedSeconds,
-          topicsCount: 0,
-        })
+      // If finalize flow already owns the UI, let it handle teardown
+      if (finalizeState.kind !== 'idle') {
+        // noop — handleConfirmFinalize's 4s fallback will transition
+      } else if (elapsedSeconds > 120) {
+        // Long interview disconnect — show network_lost with save option
+        setRecoveryVariant('network_lost')
       } else {
-        toast.error(
-          'No se pudo reconectar. La entrevista fue guardada hasta este punto.',
-          { duration: Infinity }
-        )
+        setRecoveryVariant('network_lost')
       }
     }
-    // Also handle direct Connected → Disconnected (agent hard-stopped the session)
+    // Direct Connected → Disconnected (agent hard-stopped the session)
     if (
       prevConnectionState.current === ConnectionState.Connected &&
-      connectionState === ConnectionState.Disconnected &&
-      elapsedSeconds > 120
+      connectionState === ConnectionState.Disconnected
     ) {
-      onInterviewEnd({
-        duration: elapsedSeconds,
-        topicsCount: 0,
-      })
+      if (finalizeState.kind !== 'idle') {
+        // Finalize flow owns it — expected disconnect after user_confirmed_end
+      } else if (elapsedSeconds > 120) {
+        onInterviewEnd({ duration: elapsedSeconds, topicsCount: 0 })
+      } else {
+        setRecoveryVariant('network_lost')
+      }
     }
     prevConnectionState.current = connectionState
-  }, [connectionState, localParticipant])
+  }, [connectionState, localParticipant, finalizeState.kind, elapsedSeconds, onInterviewEnd])
 
   // Text input handler
   function handleSendText(text: string) {
     const payload = new TextEncoder().encode(
       JSON.stringify({ type: 'text_input', text })
     )
-    room.localParticipant.publishData(payload, { reliable: true }).catch(() => {
-      toast.error('No se pudo enviar el mensaje.')
-    })
+    room.localParticipant.publishData(payload, { reliable: true }).catch(() => {})
   }
 
   // Mic toggle using LiveKit's standard API
@@ -253,21 +507,171 @@ function InterviewRoomContent({ session, onInterviewEnd }: InterviewRoomProps) {
     setIsMuted(newMuted)
   }
 
-  // End interview — send to agent + force-end locally after 3s
-  function handleEndInterview() {
+  // Wave 1.5: handle user clicking the Finalizar button in the modal.
+  //
+  // Sends user_confirmed_end over the data channel so the backend can mark
+  // the interview completed in Supabase and gracefully tear down the session.
+  // A 4s hard fallback forces the local UI transition if the backend doesn't
+  // disconnect us — covers the case where the data message was lost or the
+  // Python agent crashed mid-confirmation.
+  // Wave 3.1: dual-channel confirm — fires both data channel AND REST API
+  // so at least one path marks the interview completed in the DB, even if
+  // the LiveKit connection is degraded or the agent has crashed.
+  function handleConfirmFinalize() {
+    // Cancel the 90s auto-click timer — we're taking over
+    if (autoClickTimerRef.current) {
+      clearTimeout(autoClickTimerRef.current)
+      autoClickTimerRef.current = null
+    }
+
+    setFinalizeState({ kind: 'finalizing' })
+
+    // Channel 1: data channel (reaches the live agent if connected)
     const payload = new TextEncoder().encode(
-      JSON.stringify({ type: 'end_interview' })
+      JSON.stringify({ type: 'user_confirmed_end', at: Date.now() })
+    )
+    room.localParticipant
+      .publishData(payload, { reliable: true })
+      .catch(() => {})
+
+    // Channel 2: REST fallback (marks completed in DB even if agent is dead)
+    fetch(`/api/interviews/${session.interviewId}/confirm-end`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ duration: elapsedSeconds }),
+    }).catch(() => {})
+
+    // Hard fallback: if the backend doesn't close the session within 4s,
+    // force the local UI transition anyway. Clean UX > stuck spinner.
+    if (hardFallbackTimerRef.current) {
+      clearTimeout(hardFallbackTimerRef.current)
+    }
+    hardFallbackTimerRef.current = setTimeout(() => {
+      onInterviewEnd({ duration: elapsedSeconds, topicsCount: 0 })
+    }, 4000)
+  }
+
+  // Wave 3.1: recovery card action handlers
+  function handleRecoveryRetry() {
+    setRecoveryVariant(null)
+    // Force room reconnect by re-enabling mic (triggers LiveKit internal reconnect)
+    if (localParticipant) {
+      localParticipant.setMicrophoneEnabled(true).catch(() => {})
+    }
+  }
+
+  function handleRecoverySave() {
+    // Mark interview completed via REST and transition to completion card
+    fetch(`/api/interviews/${session.interviewId}/confirm-end`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        duration: elapsedSeconds,
+        reason: 'network_interrupted',
+      }),
+    }).catch(() => {})
+    onInterviewEnd({ duration: elapsedSeconds, topicsCount: 0 })
+  }
+
+  // Wave 2.1: user clicks "Finalizar entrevista" early.
+  //
+  // Instead of an abrupt kill (the old Wave 0 behavior), this now routes
+  // through the SAME flow as the happy path: we send user_requested_end to
+  // the backend, which triggers _force_llm_closing("user_requested"). The
+  // LLM then produces a warm personalized summary using the user-requested
+  // instruction variant (acknowledges early close with gratitude, not "I see
+  // you have to go"). The modal appears via the normal ready_to_finalize
+  // delivery path with TTS coordination.
+  //
+  // UX flow after click:
+  //   1. showWrappingUp banner appears immediately at the top
+  //   2. Backend receives user_requested_end, fires _force_llm_closing
+  //   3. LLM generates summary + calls end_interview tool
+  //   4. agent_state_changed handler delivers ready_to_finalize after TTS
+  //   5. Modal fades in with the agent's summary
+  //   6. User clicks Finalizar in the modal → normal handleConfirmFinalize path
+  //
+  // 12-second safety net: if no modal has appeared by then (LLM crashed,
+  // data channel dropped, etc.), the frontend client-side fallback timer
+  // at 100% elapsed OR the 12s timeout here will show a generic modal so
+  // the user never sees a stuck "Cerrando con un resumen..." banner forever.
+  function handleEndInterview() {
+    // Idempotent: if the modal is already showing or we're finalizing,
+    // this click does nothing (prevents double-fire from impatient users)
+    if (finalizeState.kind !== 'idle') return
+
+    setShowWrapupBanner(true)
+
+    const payload = new TextEncoder().encode(
+      JSON.stringify({ type: 'user_requested_end', at: Date.now() })
     )
     room.localParticipant.publishData(payload, { reliable: true }).catch(() => {})
 
-    // Force-end locally after 3 seconds regardless of agent response
+    // Safety net: if backend doesn't deliver ready_to_finalize within 12s
+    // AND the frontend fallback hasn't already fired, show a generic modal
+    // so the user isn't stuck staring at the banner.
     setTimeout(() => {
-      onInterviewEnd({ duration: elapsedSeconds, topicsCount: 0 })
-    }, 3000)
+      setFinalizeState((prev) => {
+        if (prev.kind !== 'idle') return prev
+        return {
+          kind: 'showing_modal',
+          summary:
+            'Gracias por tu tiempo. Con esta conversación tenemos suficiente información para preparar una propuesta personalizada.',
+          source: 'user_early',
+          shownAt: Date.now(),
+        }
+      })
+    }, 12_000)
   }
 
   return (
     <div className="h-dvh flex flex-col max-w-[640px] mx-auto w-full px-4 md:px-8 py-4">
+      {/* Wrap-up banner (Waves 1.5 + 2.1) — shown when the agent is wrapping up.
+          Two source paths:
+            - Time-up (90% enforcement): backend sends finalization_hint
+            - User-requested (Wave 2.1): frontend sets showWrapupBanner directly
+              when the Finalizar entrevista button is clicked
+          Both produce the same visual — the user can't tell them apart, which
+          is intentional. Hides the moment the modal takes over the viewport. */}
+      {showWrapupBanner && finalizeState.kind === 'idle' && (
+        <div
+          className="w-full text-center text-xs text-muted-foreground py-2 mb-1 rounded-md bg-muted/30 border border-border/40 motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-top-2 motion-safe:duration-300"
+          role="status"
+          aria-live="polite"
+        >
+          El entrevistador está preparando un resumen...
+        </div>
+      )}
+
+      {/* Finalize modal (Wave 1.5) — shown when ready_to_finalize is delivered
+          OR the frontend 100% fallback timer fires */}
+      {(finalizeState.kind === 'showing_modal' || finalizeState.kind === 'finalizing') && (
+        <FinalizeModal
+          summary={
+            finalizeState.kind === 'showing_modal'
+              ? finalizeState.summary
+              : 'Gracias por tu tiempo.'
+          }
+          agentState={agentState}
+          onConfirm={handleConfirmFinalize}
+          confirming={finalizeState.kind === 'finalizing'}
+        />
+      )}
+
+      {/* Wave 3.1: recovery overlay for connection failures */}
+      {recoveryVariant && finalizeState.kind === 'idle' && (
+        <RecoveryCard
+          variant={recoveryVariant}
+          onPrimary={handleRecoveryRetry}
+          onSecondary={handleRecoverySave}
+        />
+      )}
+
+      {/* Wave 3.3: backgrounded overlay for mobile tab-switch / screen-lock */}
+      {isBackgrounded && finalizeState.kind === 'idle' && !recoveryVariant && (
+        <RecoveryCard variant="backgrounded" />
+      )}
+
       {/* Top region: Orb + Phase */}
       <div className="flex flex-col items-center gap-2 pt-8 pb-6">
         <InterviewOrb state={orbState} volume={agentVolume} />
@@ -275,7 +679,7 @@ function InterviewRoomContent({ session, onInterviewEnd }: InterviewRoomProps) {
       </div>
 
       {/* Middle region: Transcript (flex-1) */}
-      <TranscriptFeed entries={entries} />
+      <TranscriptFeed entries={entries} liveInterim={liveInterim} />
 
       {/* Bottom controls */}
       <div className="flex flex-col gap-3 pb-4 pt-3">
@@ -301,32 +705,19 @@ function InterviewRoomContent({ session, onInterviewEnd }: InterviewRoomProps) {
             {isMuted ? <MicOff className="size-5" /> : <Mic className="size-5" />}
           </button>
 
-          {/* End interview button */}
-          <AlertDialog>
-            <AlertDialogTrigger
-              render={<Button variant="ghost" className="text-destructive hover:text-destructive" />}
-            >
-              Terminar entrevista
-            </AlertDialogTrigger>
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle>Terminar entrevista?</AlertDialogTitle>
-                <AlertDialogDescription>
-                  Esto finalizara la entrevista. El entrevistador guardara un
-                  resumen antes de cerrar.
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                <AlertDialogAction
-                  variant="destructive"
-                  onClick={handleEndInterview}
-                >
-                  Terminar
-                </AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
+          {/* Wave 2.1: Finalizar entrevista button.
+              No confirmation dialog — the click is the request to the agent to
+              wrap up with a warm summary, and the user confirms the actual end
+              in the modal that follows. Same routing and same UX as the happy
+              path — just initiated by the user instead of the 90% timer. */}
+          <Button
+            variant="ghost"
+            className="text-destructive hover:text-destructive"
+            onClick={handleEndInterview}
+            disabled={finalizeState.kind !== 'idle' || showWrapupBanner}
+          >
+            Finalizar entrevista
+          </Button>
 
           {/* Spacer */}
           <div className="flex-1" />
@@ -352,7 +743,11 @@ export function InterviewRoom(props: InterviewRoomProps) {
       className="w-full"
     >
       <RoomAudioRenderer />
-      <InterviewRoomContent {...props} />
+      <InterviewRoomContent
+        session={props.session}
+        inviteToken={props.inviteToken}
+        onInterviewEnd={props.onInterviewEnd}
+      />
     </LiveKitRoom>
   )
 }
