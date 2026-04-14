@@ -157,7 +157,13 @@ STYLE_INSTRUCTIONS: dict[str, str] = {
 PHASE_COACHING: dict[str, str] = {
     "warmup": "Enfocate en generar confianza y entender el panorama general del negocio. ¿Que hace la empresa? ¿Cual es su rol? ¿Que tamano tiene? No profundices en procesos aun.",
     "conversation": "Estamos en descubrimiento. Mapea procesos, identifica herramientas, detecta fricciones. Cuantifica todo: volumenes, frecuencias, tiempos, costos. Cada dato ayuda al equipo a disenar la propuesta.",
-    "closing": "Cierre. Resume brevemente lo que entendiste de su operacion. Pregunta si falta algo importante. Agradece y explica que el equipo preparara la propuesta.",
+    "closing": (
+        "Cierre en dos turnos. "
+        "PRIMERO (si el sistema no te ha dado instrucciones explicitas): pregunta si hay algo mas que quieran compartir antes de cerrar. "
+        "DESPUES (cuando respondan o el sistema te lo indique): resume brevemente lo que entendiste de su operacion, "
+        "agradece, explica que el equipo preparara la propuesta, y llama end_interview con el resumen. "
+        "No hagas nuevas preguntas exploratorias en esta fase — solo cierras."
+    ),
 }
 
 

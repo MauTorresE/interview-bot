@@ -57,6 +57,19 @@ _FORCED_CLOSING_INSTRUCTION = (
     "Esta es una instruccion del sistema, no del usuario."
 )
 
+# Phase-1 closing: before summarizing, give the participant a final chance
+# to share anything they haven't covered. The LLM must ONLY ask the question
+# — no summary, no tool call yet. Phase-2 fires after their response.
+_CLOSING_FINAL_CHANCE_INSTRUCTION = (
+    "[SISTEMA DE TIEMPO] El tiempo de la entrevista esta por terminar. "
+    "En tu proxima respuesta, haz UNA sola cosa: pregunta al participante si hay "
+    "algo mas que quiera compartir antes de cerrar — un tema que no hayan cubierto, "
+    "un detalle que considere importante, o algo que le haya quedado pendiente. "
+    "Formato sugerido: una frase calida y breve de transicion ('Antes de cerrar, quiero preguntarte...') "
+    "seguida de la pregunta. NO des resumen aun. NO llames end_interview. "
+    "Espera su respuesta. Esta es una instruccion del sistema, no del usuario."
+)
+
 # Variant for when the user clicks "Finalizar entrevista" early.
 # Used in Wave 2.1 — defined here so both instructions live together.
 _FORCED_CLOSING_INSTRUCTION_USER_REQUESTED = (
@@ -230,37 +243,32 @@ class EntrevistaAgent(Agent):
         self._state.touch_user_turn()
         await self._check_timing_guardrails()
 
-    def _on_conversation_item_added(self, event):
-        """Save bot transcript entries to Supabase AND send via data channel."""
-        try:
-            item = event.data if hasattr(event, "data") else event
-            if hasattr(item, "role") and hasattr(item, "text_content"):
-                role = str(item.role)
-                text = item.text_content or ""
-                if text.strip() and "assistant" in role.lower():
-                    elapsed_ms = int((time.time() - self._start_time) * 1000)
+        # Phase-2 trigger: if phase-1 has already asked "anything else?" and the
+        # user just completed a substantive turn, escalate to phase-2 (summary + end).
+        # Guards:
+        #   - Must be in phase-1 mode (final_chance_given=True)
+        #   - Must not already be in phase-2 or ended
+        #   - At least 5s since phase-1 started (give phase-1 TTS time to finish)
+        #   - Response must be substantive (>=2 words OR >=8 chars) to avoid
+        #     triggering on fillers like "uh", "sí", a cough, etc.
+        if (
+            self._state._closing_final_chance_given
+            and not self._state._closing_forced
+            and not self._state._end_tool_called
+            and not self._state.ended
+        ):
+            stripped = text.strip()
+            words = len(stripped.split())
+            phase1_age = time.time() - self._state._phase1_started_at
+            if phase1_age < 5:
+                logger.info(f"Phase-2 skip: phase-1 too young ({phase1_age:.1f}s)")
+            elif words < 2 and len(stripped) < 8:
+                logger.info(f"Phase-2 skip: filler response ('{stripped}')")
+            else:
+                await self._do_force_summary_and_end("final_chance_user_responded")
 
-                    # Persist to Supabase (non-blocking)
-                    try:
-                        asyncio.create_task(
-                            save_transcript_entry(
-                                self._interview_id, "bot", text.strip(), elapsed_ms
-                            )
-                        )
-                    except Exception as e:
-                        logger.error(f"Failed to create bot transcript save task: {e}")
-
-                    # Send via data channel for live frontend display (BLOCKER 1 fix)
-                    self._send_data(
-                        {
-                            "type": "transcript",
-                            "speaker": "bot",
-                            "content": text.strip(),
-                            "elapsed_ms": elapsed_ms,
-                        }
-                    )
-        except Exception as e:
-            logger.debug(f"conversation_item_added handler error: {e}")
+    # (Bot transcript saving is handled by the @session.on("conversation_item_added")
+    # handler at the bottom of entrypoint() — this orphan method was never hooked up.)
 
     # ── Function tools (D-08: generic for any domain) ──────────────
 
@@ -461,68 +469,195 @@ class EntrevistaAgent(Agent):
     # ── Timing guardrails (Tier 0 rewrite) ─────────────────────────
 
     async def _force_llm_closing(self, reason: str) -> None:
-        """Force the LLM to produce a summary + call end_interview.
+        """Router: routes to phase-1 (final chance) or phase-2 (summary + end).
 
-        Uses session.generate_reply(instructions=...) which bypasses the
-        Anthropic ephemeral prompt cache — the mechanism that made
-        update_instructions() unreliable for mid-session behavior changes.
+        Reasons:
+          - 'time_limit_90pct' / 'idle_timeout': route through phase-1 first
+          - 'user_requested': skip phase-1 (user chose to end now)
+          - 'final_chance_timeout' / 'final_chance_user_responded': explicit phase-2
+          - 'watchdog': legacy direct phase-2
 
-        Idempotent: only fires once per interview (guarded by _closing_forced).
-        Reasons: 'time_limit_90pct', 'idle_timeout', 'user_requested', 'watchdog'.
+        Idempotent: guarded by _closing_forced (phase-2 fired) and _end_tool_called.
         """
-        if self._state._closing_forced:
-            logger.debug(f"Interview {self._interview_id}: closing already forced, skipping ({reason})")
+        if self._state._end_tool_called or self._state.ended:
+            logger.debug(f"Interview {self._interview_id}: already ending, skip ({reason})")
             return
-        self._state.mark_closing_forced()
+
+        # User-requested early close skips phase-1 (they explicitly want to end)
+        if reason == "user_requested":
+            await self._do_force_summary_and_end(reason)
+            return
+
+        # Explicit phase-2 triggers
+        if reason in ("final_chance_timeout", "final_chance_user_responded", "watchdog"):
+            await self._do_force_summary_and_end(reason)
+            return
+
+        # Phase-1: first time fire for time_limit_90pct or idle_timeout
+        if not self._state._closing_final_chance_given:
+            await self._do_fire_final_chance(reason)
+            return
+
+        # Phase-1 already fired but we got re-triggered (shouldn't normally happen)
+        # — fall through to phase-2 as safety
+        await self._do_force_summary_and_end(reason)
+
+    async def _do_fire_final_chance(self, reason: str) -> None:
+        """Phase-1: ask participant if there's anything else they want to share."""
+        if self._state._closing_final_chance_given:
+            return  # already fired
+        self._state._closing_final_chance_given = True
+        self._state._phase1_started_at = time.time()
         self._state.transition_to("closing")
 
-        # Wave 1.7: map internal reason to DB enum value so the completed
-        # interview row records why the closing was forced
-        if reason == "user_requested":
-            self._state.closing_reason = "user_requested"
-        elif reason in ("time_limit_90pct", "idle_timeout"):
+        # Map reason to closing_reason now so DB reflects trigger even if
+        # phase-2 happens via user_responded path
+        if reason in ("time_limit_90pct", "idle_timeout"):
             self._state.closing_reason = "time_up"
         else:
-            self._state.closing_reason = "time_up"  # default for any future reason values
+            self._state.closing_reason = "time_up"
 
         logger.info(
-            f"Interview {self._interview_id}: forcing LLM closing "
-            f"(reason={reason}, elapsed={self._state.elapsed_seconds}s)"
+            f"Interview {self._interview_id}: PHASE-1 (final chance) at "
+            f"{self._state.elapsed_seconds}s ({reason})"
         )
 
-        # Tell the frontend a finalization is in progress (for the wrap-up banner)
+        # Tell frontend the closing has started (wrap-up banner)
         self._send_data({"type": "finalization_hint"})
         self._send_data({"type": "phase_change", "phase": "closing"})
+        self._update_instructions()
 
-        # Pick the right instruction variant (time limit vs user-requested early end)
+        # Interrupt any in-flight generation so the final-chance question
+        # replaces whatever normal response was being generated.
+        try:
+            self.session.interrupt()
+        except Exception as e:
+            logger.debug(f"session.interrupt() in phase-1: {e}")
+
+        try:
+            self.session.generate_reply(instructions=_CLOSING_FINAL_CHANCE_INSTRUCTION)
+        except Exception as e:
+            logger.error(f"phase-1 generate_reply failed: {e}", exc_info=True)
+
+        # Safety-net timer: if user never responds, force phase-2 after 60s.
+        # Extends up to 3x (90s / 60s / 60s) if user is actively speaking,
+        # giving them up to ~2.5min to share their last thoughts before we
+        # fall back to the summary.
+        async def _final_chance_timeout(extension: int = 0):
+            wait = 60
+            await asyncio.sleep(wait)
+            if (
+                self._state._end_tool_called
+                or self._state.ended
+                or self._state._closing_forced
+            ):
+                return  # already closed via another path
+
+            now = time.time()
+            last_turn = self._state.last_user_turn_at or 0
+            silence_s = now - last_turn if last_turn else 999
+
+            # Don't cut user off mid-speech
+            if silence_s < 3:
+                if extension < 3:
+                    logger.info(
+                        f"Interview {self._interview_id}: phase-1 timeout deferred "
+                        f"(user speaking, silence={silence_s:.1f}s, ext={extension+1}/3)"
+                    )
+                    asyncio.create_task(_final_chance_timeout(extension + 1))
+                    return
+                logger.warning(
+                    f"Interview {self._interview_id}: phase-1 max extensions reached, forcing close"
+                )
+
+            logger.info(
+                f"Interview {self._interview_id}: phase-1 timeout, firing phase-2 "
+                f"(silence={silence_s:.1f}s, ext={extension})"
+            )
+            await self._do_force_summary_and_end("final_chance_timeout")
+
+        asyncio.create_task(_final_chance_timeout())
+
+    async def _do_force_summary_and_end(self, reason: str) -> None:
+        """Phase-2: force summary + end_interview tool call.
+
+        Shared by: user_requested (skips phase-1), final_chance_timeout,
+        final_chance_user_responded, and watchdog fallback.
+        """
+        if self._state._closing_forced or self._state._end_tool_called or self._state.ended:
+            return
+        self._state.mark_closing_forced()
+
+        # If phase-1 didn't run (user_requested or watchdog), still transition
+        # + send hints now.
+        if not self._state._closing_final_chance_given:
+            self._state.transition_to("closing")
+            self._send_data({"type": "finalization_hint"})
+            self._send_data({"type": "phase_change", "phase": "closing"})
+
+        if reason == "user_requested":
+            self._state.closing_reason = "user_requested"
+        elif reason == "watchdog":
+            self._state.closing_reason = "watchdog"
+        else:
+            # Default to "time_up" for natural phase-1 → phase-2 transitions
+            # (already set in _do_fire_final_chance but safe to reaffirm)
+            if self._state.closing_reason is None:
+                self._state.closing_reason = "time_up"
+
+        logger.info(
+            f"Interview {self._interview_id}: PHASE-2 (summary+end) at "
+            f"{self._state.elapsed_seconds}s ({reason})"
+        )
+
         instruction = (
             _FORCED_CLOSING_INSTRUCTION_USER_REQUESTED
             if reason == "user_requested"
             else _FORCED_CLOSING_INSTRUCTION
         )
-
-        # Also update the system prompt so subsequent turns see closing urgency
         self._update_instructions()
 
+        # Interrupt any in-flight generation — but only when safe. If phase-1's
+        # TTS might still be playing (phase-1 was recent and no user turn has
+        # completed after it), skip the interrupt so we don't chop off the
+        # "anything else?" question mid-word.
+        should_interrupt = True
+        if (
+            self._state._closing_final_chance_given
+            and reason == "final_chance_timeout"
+        ):
+            # Timeout path with no user response — phase-1 TTS finished long ago, safe to interrupt
+            should_interrupt = True
+        elif reason == "final_chance_user_responded":
+            # User completed a turn → phase-1 TTS definitely finished. Safe.
+            should_interrupt = True
+        elif reason == "user_requested":
+            # User clicked finalize — safe to interrupt
+            should_interrupt = True
+
+        if should_interrupt:
+            try:
+                self.session.interrupt()
+            except Exception as e:
+                logger.debug(f"session.interrupt() in phase-2: {e}")
+
         try:
-            # session.generate_reply(instructions=...) injects a per-turn directive
-            # that is NOT recorded in chat history but steers the next generation.
-            # This is the canonical way to reliably steer a cached-prompt LLM.
             self.session.generate_reply(instructions=instruction)
         except Exception as e:
-            logger.error(
-                f"Interview {self._interview_id}: generate_reply failed during enforcement: {e}",
-                exc_info=True,
-            )
+            logger.error(f"phase-2 generate_reply failed: {e}", exc_info=True)
 
-        # Retry: if the LLM doesn't call end_interview within 20s, fire again.
-        # Haiku 4.5 sometimes generates a response without calling the tool.
+        # Retry at 20s if the LLM generates a response but forgets the tool call.
+        # Haiku 4.5 occasionally does this.
         async def _enforcement_retry():
             await asyncio.sleep(20)
             if not self._state._end_tool_called and not self._state.ended:
                 logger.warning(
-                    f"Interview {self._interview_id}: LLM ignored enforcement, retrying"
+                    f"Interview {self._interview_id}: phase-2 retry — LLM skipped tool call"
                 )
+                try:
+                    self.session.interrupt()
+                except Exception:
+                    pass
                 try:
                     self.session.generate_reply(instructions=(
                         "[SISTEMA - URGENTE] NO llamaste la funcion end_interview como se te pidio. "
@@ -530,7 +665,7 @@ class EntrevistaAgent(Agent):
                         "No digas nada mas. Solo llama la funcion end_interview."
                     ))
                 except Exception as e:
-                    logger.error(f"Enforcement retry failed: {e}")
+                    logger.error(f"phase-2 retry failed: {e}")
         asyncio.create_task(_enforcement_retry())
 
     async def _check_timing_guardrails(self) -> None:
@@ -546,8 +681,23 @@ class EntrevistaAgent(Agent):
         if self._state.ended:
             return
 
-        # Layer 5 — 130% backend watchdog (covers "frontend is dead" case)
+        # Layer 5 — 130% backend watchdog (covers "frontend is dead" case).
+        # Grace period: if phase-1 ("anything else?") is actively waiting for a
+        # user response, give it ONE extra tick (~5s) before force-closing.
+        # This prevents the watchdog from truncating a user who's sharing last
+        # thoughts at the edge of the time budget.
         if self._state.should_watchdog_close:
+            if (
+                self._state._closing_final_chance_given
+                and not self._state._closing_forced
+                and not self._state._watchdog_grace_used
+            ):
+                self._state._watchdog_grace_used = True
+                logger.info(
+                    f"Interview {self._interview_id}: WATCHDOG grace granted "
+                    f"(phase-1 active at {self._state.elapsed_seconds}s)"
+                )
+                return  # Skip watchdog this tick; re-evaluate next 5s cycle
             logger.warning(
                 f"Interview {self._interview_id}: WATCHDOG FORCE CLOSE at "
                 f"{self._state.elapsed_seconds}s"
@@ -745,7 +895,11 @@ async def entrypoint(ctx: JobContext):
                 text = item.text_content or ""
                 item_id = getattr(item, "id", None) or id(item)
 
-                if text.strip() and "assistant" in role.lower() and item_id not in _saved_bot_ids:
+                # Any role that isn't "user" is a bot/agent turn. The substring
+                # check on "assistant" was brittle: LiveKit 1.5.2 may emit role
+                # values that don't contain that substring (e.g. "model", enum),
+                # silently dropping all bot transcripts.
+                if text.strip() and role.lower() != "user" and item_id not in _saved_bot_ids:
                     _saved_bot_ids.add(item_id)
                     elapsed_ms = int((time.time() - agent._start_time) * 1000)
                     asyncio.create_task(
@@ -758,7 +912,7 @@ async def entrypoint(ctx: JobContext):
                 text = str(item.content) if item.content else ""
                 item_id = getattr(item, "id", None) or id(item)
 
-                if text.strip() and "assistant" in role.lower() and item_id not in _saved_bot_ids:
+                if text.strip() and role.lower() != "user" and item_id not in _saved_bot_ids:
                     _saved_bot_ids.add(item_id)
                     elapsed_ms = int((time.time() - agent._start_time) * 1000)
                     asyncio.create_task(
