@@ -716,12 +716,12 @@ async def entrypoint(ctx: JobContext):
         ),
         tts=tts,
         vad=silero.VAD.load(
-            min_speech_duration=0.3,
-            min_silence_duration=1.5,  # D-34: longer endpointing for deep thinking pauses in Spanish
-            prefix_padding_duration=0.3,  # D-34
+            min_speech_duration=0.5,   # Require 500ms of speech before tracking a turn (was 300ms)
+            min_silence_duration=2.0,  # Wait 2s of silence before ending turn (was 1.5s)
+            prefix_padding_duration=0.5,  # Capture more pre-speech audio for context
         ),
-        allow_interruptions=True,  # D-35
-        false_interruption_timeout=2.0,  # D-35: prevents coughs/background noise
+        allow_interruptions=True,
+        false_interruption_timeout=3.0,  # Wait 3s before treating brief user speech as real interruption
         resume_false_interruption=True,  # D-35: agent resumes after false interruption
         user_away_timeout=12.0,  # D-37: silence re-engagement after 12s
     )
