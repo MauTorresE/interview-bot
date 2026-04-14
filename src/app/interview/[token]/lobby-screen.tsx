@@ -73,9 +73,11 @@ export function LobbyScreen({ session, campaignName, onStart }: LobbyScreenProps
     return () => clearTimeout(t)
   }, [micError, micDenied, activeDeviceId])
 
-  // Start mic monitoring when device changes
+  // Start mic monitoring when device changes.
+  // Skip if starting=true — handleStart has already released the mic
+  // and we must not re-acquire it before LiveKit mounts.
   useEffect(() => {
-    if (!activeDeviceId) return
+    if (!activeDeviceId || starting) return
 
     let cancelled = false
 
@@ -149,7 +151,7 @@ export function LobbyScreen({ session, campaignName, onStart }: LobbyScreenProps
         streamRef.current = null
       }
     }
-  }, [activeDeviceId])
+  }, [activeDeviceId, starting])
 
   // Latch mic detection
   if (volume > 0.02) {
@@ -159,7 +161,11 @@ export function LobbyScreen({ session, campaignName, onStart }: LobbyScreenProps
 
   function handleStart() {
     setStarting(true)
-    // Stop mic monitoring and close AudioContext before handing off to interview room
+    // Stop mic monitoring before handing off to interview room.
+    // Matches the working checkpoint pattern: synchronous cleanup,
+    // then onStart(). The flow-wrapper's mic_handoff phase provides
+    // a 1.5s gap (lobby fully unmounted, nothing holds the mic)
+    // before LiveKitRoom mounts with audio={true}.
     if (rafRef.current) {
       cancelAnimationFrame(rafRef.current)
     }

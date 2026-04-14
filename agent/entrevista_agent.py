@@ -501,6 +501,9 @@ class EntrevistaAgent(Agent):
             else _FORCED_CLOSING_INSTRUCTION
         )
 
+        # Also update the system prompt so subsequent turns see closing urgency
+        self._update_instructions()
+
         try:
             # session.generate_reply(instructions=...) injects a per-turn directive
             # that is NOT recorded in chat history but steers the next generation.
@@ -511,6 +514,24 @@ class EntrevistaAgent(Agent):
                 f"Interview {self._interview_id}: generate_reply failed during enforcement: {e}",
                 exc_info=True,
             )
+
+        # Retry: if the LLM doesn't call end_interview within 20s, fire again.
+        # Haiku 4.5 sometimes generates a response without calling the tool.
+        async def _enforcement_retry():
+            await asyncio.sleep(20)
+            if not self._state._end_tool_called and not self._state.ended:
+                logger.warning(
+                    f"Interview {self._interview_id}: LLM ignored enforcement, retrying"
+                )
+                try:
+                    self.session.generate_reply(instructions=(
+                        "[SISTEMA - URGENTE] NO llamaste la funcion end_interview como se te pidio. "
+                        "DEBES llamar end_interview AHORA con un resumen breve. "
+                        "No digas nada mas. Solo llama la funcion end_interview."
+                    ))
+                except Exception as e:
+                    logger.error(f"Enforcement retry failed: {e}")
+        asyncio.create_task(_enforcement_retry())
 
     async def _check_timing_guardrails(self) -> None:
         """Tier 0 guardrail ladder: 80% nudge → 90% enforce → idle → 130% watchdog.

@@ -106,9 +106,12 @@ function InterviewRoomContent({ session, inviteToken, onInterviewEnd }: Intervie
   const [recoveryVariant, setRecoveryVariant] = useState<RecoveryVariant | null>(null)
 
   // Wave 3.2: agent heartbeat tracking. The Python agent publishes a heartbeat
-  // every 5s. If we don't receive one for 25s while connected and not finalizing,
+  // every 5s. If we don't receive one for 45s while connected and not finalizing,
   // we show the agent_unresponsive recovery card.
-  const lastHeartbeatAt = useRef<number>(Date.now())
+  // Starts as null — watchdog only activates after the FIRST heartbeat arrives,
+  // so agents that don't support heartbeats (or aren't running) don't trigger
+  // false alarms.
+  const lastHeartbeatAt = useRef<number | null>(null)
 
   // Wave 3.3: wake lock + tab visibility tracking for mobile resilience
   const { isBackgrounded } = useInterviewPresence()
@@ -424,22 +427,25 @@ function InterviewRoomContent({ session, inviteToken, onInterviewEnd }: Intervie
     return () => clearInterval(interval)
   }, [])
 
-  // Wave 3.2: heartbeat watchdog — check every 5s if the agent has gone silent.
-  // If no heartbeat for 25s while connected and not in finalization, show the
-  // agent_unresponsive recovery card. Clears automatically when a heartbeat
-  // arrives (handled in the data channel listener above).
+  // Wave 3.2: heartbeat watchdog — check every 10s if the agent has gone silent.
+  // If no heartbeat for 45s while connected and not in finalization, show the
+  // agent_unresponsive recovery card. 45s is generous enough to avoid false
+  // positives during normal LLM thinking pauses (~10-20s) while still catching
+  // actual agent crashes. Clears automatically when a heartbeat arrives
+  // (handled in the data channel listener above).
   useEffect(() => {
     const id = setInterval(() => {
+      if (lastHeartbeatAt.current === null) return // No heartbeat received yet — agent may not support it
       const gap = Date.now() - lastHeartbeatAt.current
       if (
-        gap > 25_000 &&
+        gap > 45_000 &&
         connectionState === ConnectionState.Connected &&
         finalizeState.kind === 'idle' &&
         recoveryVariant !== 'agent_unresponsive'
       ) {
         setRecoveryVariant('agent_unresponsive')
       }
-    }, 5000)
+    }, 10_000)
     return () => clearInterval(id)
   }, [connectionState, finalizeState.kind, recoveryVariant])
 

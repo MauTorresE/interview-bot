@@ -14,6 +14,7 @@ type FlowPhase =
   | 'consent'
   | 'lobby'
   | 'interview'
+  | 'mic_handoff'  // Brief transition: lobby unmounted, LiveKitRoom not yet mounted
   | 'completion'
   | 'rejoining'
   | 'finalizing_restore' // Wave 2.3: modal restored from sessionStorage after refresh
@@ -281,10 +282,21 @@ export function InterviewFlowWrapper({
             session={session}
             campaignName={campaignName}
             onStart={() => {
-              // Delay to let browser fully release mic + AudioContext before LiveKitRoom grabs it
-              setTimeout(() => setPhase('interview'), 1000)
+              // Transition to a blank phase — lobby unmounts and fully releases
+              // the mic. After 1.5s, mount LiveKitRoom with audio={true}.
+              // This two-phase approach avoids the NotReadableError on Windows
+              // where AudioContext.close() + track.stop() don't release the
+              // device handle fast enough for LiveKit's getUserMedia.
+              setPhase('mic_handoff')
+              setTimeout(() => setPhase('interview'), 1500)
             }}
           />
+        </div>
+      )}
+      {phase === 'mic_handoff' && (
+        <div className="flex flex-col items-center gap-3 text-muted-foreground">
+          <Loader2 className="size-6 animate-spin" />
+          <p className="text-sm">Conectando...</p>
         </div>
       )}
       {tabLockStatus !== 'locked_by_other' && phase === 'interview' && session && (
