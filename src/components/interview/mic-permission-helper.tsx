@@ -17,14 +17,20 @@ import { Button } from '@/components/ui/button'
 
 type Browser = 'chrome' | 'safari-ios' | 'safari-mac' | 'firefox' | 'edge' | 'other'
 
-function detectBrowser(): Browser {
-  if (typeof navigator === 'undefined') return 'other'
-  const ua = navigator.userAgent
-  if (/iPhone|iPad/.test(ua) && /Safari/.test(ua) && !/CriOS|FxiOS/.test(ua)) return 'safari-ios'
-  if (/Safari/.test(ua) && !/Chrome|Chromium/.test(ua)) return 'safari-mac'
+// Exported for unit testing. Pure function — no DOM access beyond `navigator`.
+export function detectBrowser(ua: string | undefined = typeof navigator !== 'undefined' ? navigator.userAgent : undefined): Browser {
+  if (!ua) return 'other'
+  // Order matters: Edge, Chromium-family, and Firefox UAs all contain "Safari"
+  // as a legacy substring, so Safari detection must come last to avoid false
+  // positives. Mobile Chromium/Firefox (CriOS/FxiOS) must be matched before
+  // generic "Chrome|Chromium" because Chrome-on-iOS UA also includes "Safari".
   if (/Edg\//.test(ua)) return 'edge'
+  if (/CriOS/.test(ua)) return 'chrome'
+  if (/FxiOS/.test(ua)) return 'firefox'
   if (/Firefox/.test(ua)) return 'firefox'
   if (/Chrome|Chromium/.test(ua)) return 'chrome'
+  if (/iPhone|iPad/.test(ua) && /Safari/.test(ua)) return 'safari-ios'
+  if (/Safari/.test(ua)) return 'safari-mac'
   return 'other'
 }
 

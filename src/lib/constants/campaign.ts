@@ -26,9 +26,10 @@ export const INTERVIEWER_STYLES = [
   { value: 'direct', label: 'Directo', description: 'Tono conciso y enfocado. Ideal para entrevistas cortas.' },
 ] as const
 
+// NOTE: voxtral-natalia id is preserved to avoid a campaigns.voice_id migration;
+// the cloned voice is Mauricio's own, so the display name reflects that.
 export const VOICE_PERSONAS = [
-  { id: 'voxtral-natalia', name: 'Natalia', provider: 'voxtral', premium: false },
-  { id: 'voxtral-diego', name: 'Diego', provider: 'voxtral', premium: false },
+  { id: 'voxtral-natalia', name: 'Mauricio', provider: 'voxtral', premium: false },
   { id: 'elevenlabs-sofia', name: 'Sofia', provider: 'elevenlabs', premium: true },
   { id: 'elevenlabs-marco', name: 'Marco', provider: 'elevenlabs', premium: true },
 ] as const
