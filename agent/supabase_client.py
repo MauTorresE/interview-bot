@@ -127,9 +127,11 @@ async def load_interview_config(interview_id: str) -> InterviewConfig:
                 bd = brief_result.data["brief_data"]
                 # Support both key formats: short (goals) and long (research_goals)
                 rt = bd.get("required_topics") or []
-                # Defensive: filter to non-empty strings, cap at 10 to match Zod schema
+                # Defensive: only accept actual strings (reject dicts/lists/numbers
+                # that would have stringified to junk like "{}" or "[1, 2]"), then
+                # trim and cap at 10 to mirror the Zod schema bounds on the UI side.
                 if isinstance(rt, list):
-                    rt = [str(t).strip() for t in rt if t and str(t).strip()][:10]
+                    rt = [t.strip() for t in rt if isinstance(t, str) and t.strip()][:10]
                 else:
                     rt = []
                 brief_data = {

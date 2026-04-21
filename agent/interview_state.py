@@ -94,18 +94,23 @@ class InterviewState:
             f"Temas documentados: {self.topics_count}.",
         ]
 
-        # Required-topic coverage reminder — put it prominently so the LLM
-        # sees which mandatory topics still need to be probed before closing.
-        uncovered = self.uncovered_required_topics
-        if uncovered:
-            pending = "; ".join(f"#{i + 1} {t}" for i, t in uncovered)
-            lines.append(
-                f"TEMAS OBLIGATORIOS PENDIENTES (debes cubrirlos antes de cerrar): {pending}."
-            )
-        elif self.required_topics:
-            lines.append(
-                "Temas obligatorios: todos cubiertos. Puedes cerrar cuando el tiempo lo indique."
-            )
+        # Required-topic coverage reminder — prominent during warmup + conversation
+        # so the LLM sees which mandatory topics still need to be probed.
+        # Suppressed during the closing phase because at that point the closing
+        # instructions already enforce "ONE key finding, 2-3 sentences" — listing
+        # pending topics here would push the model toward dumping them into the
+        # summary (the exact anti-pattern Tier 1 fought). Time budget wins.
+        if self.phase != "closing":
+            uncovered = self.uncovered_required_topics
+            if uncovered:
+                pending = "; ".join(f"#{i + 1} {t}" for i, t in uncovered)
+                lines.append(
+                    f"TEMAS OBLIGATORIOS PENDIENTES (debes cubrirlos antes de cerrar): {pending}."
+                )
+            elif self.required_topics:
+                lines.append(
+                    "Temas obligatorios: todos cubiertos. Puedes cerrar cuando el tiempo lo indique."
+                )
 
         # Topic pacing guidance
         ideal_topics = max(2, target_min // 5)  # ~1 topic per 5 min

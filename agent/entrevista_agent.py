@@ -302,17 +302,32 @@ class EntrevistaAgent(Agent):
 
         coverage_msg = ""
         if required_topic_index is not None:
-            # Prompt uses 1-based indices; state stores 0-based
-            zero_based = required_topic_index - 1
-            if self._state.mark_required_topic_covered(zero_based):
-                uncovered = self._state.uncovered_required_topics
-                if uncovered:
-                    remaining = ", ".join(f"#{i + 1} {t}" for i, t in uncovered)
-                    coverage_msg = f" Tema obligatorio #{required_topic_index} marcado. Pendientes: {remaining}."
+            # Defensive coerce — some LLMs send tool args as strings ("1") even
+            # when the schema says integer. A raw `int - 1` subtraction would
+            # raise TypeError and kill the tool call mid-turn; silently accept
+            # anything that parses as an integer and surface a friendly notice
+            # otherwise.
+            try:
+                rti = int(required_topic_index)
+            except (TypeError, ValueError):
+                coverage_msg = (
+                    f" (Aviso: required_topic_index={required_topic_index!r} "
+                    f"no es un numero — no se marco ningun tema.)"
+                )
+                rti = None
+
+            if rti is not None:
+                # Prompt uses 1-based indices; state stores 0-based
+                zero_based = rti - 1
+                if self._state.mark_required_topic_covered(zero_based):
+                    uncovered = self._state.uncovered_required_topics
+                    if uncovered:
+                        remaining = ", ".join(f"#{i + 1} {t}" for i, t in uncovered)
+                        coverage_msg = f" Tema obligatorio #{rti} marcado. Pendientes: {remaining}."
+                    else:
+                        coverage_msg = f" Tema obligatorio #{rti} marcado. Todos los obligatorios cubiertos."
                 else:
-                    coverage_msg = f" Tema obligatorio #{required_topic_index} marcado. Todos los obligatorios cubiertos."
-            else:
-                coverage_msg = f" (Aviso: required_topic_index={required_topic_index} esta fuera de rango — ignora el marcado.)"
+                    coverage_msg = f" (Aviso: required_topic_index={rti} esta fuera de rango — ignora el marcado.)"
 
         self._update_instructions()
         return (
