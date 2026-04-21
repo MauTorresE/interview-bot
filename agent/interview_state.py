@@ -107,10 +107,12 @@ class InterviewState:
         if self.elapsed_fraction >= 0.90:
             lines.append(
                 "URGENTE: El tiempo esta casi agotado. En tu proxima respuesta, cierra "
-                "en EXACTAMENTE 2-3 oraciones: UN solo hallazgo clave (no una lista de "
-                "temas, no recites datos verbatim), agradecimiento breve, y mencion de "
-                "que el equipo preparara la propuesta. Despues llama INMEDIATAMENTE la "
-                "funcion end_interview con ese mismo resumen. NO hagas mas preguntas."
+                "en EXACTAMENTE 2-3 oraciones: UN solo hallazgo clave nombrado "
+                "concretamente (un proceso, herramienta o friccion especifica — no una "
+                "lista, no 'aprendi mucho', no recites datos verbatim), agradecimiento "
+                "breve, y mencion de que el equipo preparara la propuesta. Despues llama "
+                "INMEDIATAMENTE la funcion end_interview con ese mismo resumen. NO hagas "
+                "mas preguntas."
             )
         elif self.elapsed_fraction >= 0.80:
             lines.append(

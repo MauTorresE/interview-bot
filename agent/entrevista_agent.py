@@ -50,12 +50,15 @@ logger.setLevel(logging.INFO)
 _FORCED_CLOSING_INSTRUCTION = (
     "[SISTEMA DE TIEMPO] El tiempo de la entrevista esta agotado. "
     "En tu proxima respuesta, cierra en EXACTAMENTE 2-3 oraciones: "
-    "(1) UN solo hallazgo clave de lo que escuchaste (no una lista), "
+    "(1) UN solo hallazgo clave — y nombralo concretamente: un proceso, "
+    "herramienta o friccion especifica que mencionaron (no una lista, no una "
+    "frase generica como 'aprendi mucho sobre tu operacion'), "
     "(2) agradecimiento breve, "
     "(3) mencion de que el equipo va a preparar la propuesta. "
     "Despues llama INMEDIATAMENTE la funcion end_interview con ese mismo resumen. "
-    "NO reciteles verbatim los datos que te dieron. NO listes multiples temas. "
-    "NO hagas mas preguntas. Esta es una instruccion del sistema, no del usuario."
+    "NO reciteles verbatim los datos que te dieron (duraciones, volumenes, numeros). "
+    "NO listes multiples temas. NO hagas mas preguntas. "
+    "Esta es una instruccion del sistema, no del usuario."
 )
 
 # Phase-1 closing: before summarizing, give the participant a final chance
@@ -78,11 +81,14 @@ _FORCED_CLOSING_INSTRUCTION_USER_REQUESTED = (
     "Esto es perfectamente normal. En tu proxima respuesta, cierra en EXACTAMENTE "
     "2-3 oraciones: "
     "(1) agradecele por su nombre con calidez, "
-    "(2) menciona UN solo hallazgo clave de lo que aprendiste (no listes varios), "
+    "(2) nombra concretamente UN hallazgo clave — un proceso, herramienta o "
+    "friccion especifica que mencionaron (no listes varios, no uses frases "
+    "genericas como 'aprendi mucho'), "
     "(3) explica brevemente que el equipo va a preparar la propuesta. "
     "Despues llama INMEDIATAMENTE la funcion end_interview con ese mismo resumen. "
     "NO digas 'veo que tienes que irte' ni 'entiendo que no tengas tiempo'. "
-    "NO reciteles verbatim los datos que te dieron. NO hagas mas preguntas."
+    "NO reciteles verbatim los datos que te dieron (duraciones, volumenes, numeros). "
+    "NO hagas mas preguntas."
 )
 
 # Voice persona mapping (matches src/lib/constants/campaign.ts).
@@ -354,13 +360,16 @@ class EntrevistaAgent(Agent):
         """Termina la entrevista con un resumen personalizado.
 
         El resumen debe ser breve: EXACTAMENTE 2-3 oraciones que incluyan
-        (1) UN solo hallazgo clave de lo que aprendiste — no una lista de
-        temas, (2) agradecimiento breve, (3) mencion de que el equipo va a
-        preparar la propuesta.
+        (1) UN solo hallazgo clave, nombrado concretamente — un proceso,
+        herramienta o friccion especifica que el participante menciono (NO una
+        lista de temas, NO una frase generica como "aprendi mucho sobre tu
+        operacion"), (2) agradecimiento breve, (3) mencion de que el equipo
+        va a preparar la propuesta.
 
         NO recites verbatim los datos que el participante te dio (duraciones,
-        volumenes, nombres de procesos). NO listes multiples observaciones.
-        El objetivo es un cierre humano y calido, no un dump de informacion.
+        volumenes, numeros). NO listes multiples observaciones. El objetivo
+        es un cierre humano y calido con un punto de anclaje concreto, no un
+        dump de informacion ni un agradecimiento vacio.
 
         IMPORTANTE: Esta funcion NO termina la llamada inmediatamente. En lugar
         de eso, presenta al usuario un modal para que el confirme el cierre.
