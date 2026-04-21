@@ -31,7 +31,11 @@ class InterviewState:
 
         # Tier progression idempotency flags
         self._nudged: bool = False          # 80% soft nudge fired
-        self._closing_forced: bool = False  # 90% enforcement fired (or user_requested)
+        self._closing_forced: bool = False  # Phase-2 (summary + end_interview) fired
+        # Two-phase closing flags (Plan: closing-improvements)
+        self._closing_final_chance_given: bool = False  # Phase-1 ("anything else?") fired
+        self._phase1_started_at: float = 0.0  # time.time() when phase-1 triggered
+        self._watchdog_grace_used: bool = False  # 130% watchdog grace already granted once
 
         # End-of-interview signals
         self._end_tool_called: bool = False     # LLM called end_interview tool

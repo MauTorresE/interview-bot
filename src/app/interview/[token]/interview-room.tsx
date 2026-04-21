@@ -357,6 +357,11 @@ function InterviewRoomContent({ session, inviteToken, onInterviewEnd }: Intervie
   // "backend is dead" safety net — runs even if the Python agent has crashed.
   useEffect(() => {
     if (finalizeState.kind !== 'idle') return
+    // If the wrap-up banner is showing, the agent has already started its
+    // two-phase closing (phase-1 "anything else?" in flight). Don't fire the
+    // frontend fallback — it would cut off the agent's natural closing.
+    // The 130% backend watchdog remains as the ultimate safety net.
+    if (showWrapupBanner) return
     if (targetSeconds > 0 && elapsedSeconds >= targetSeconds) {
       requestModal({
         summary:
@@ -364,7 +369,7 @@ function InterviewRoomContent({ session, inviteToken, onInterviewEnd }: Intervie
         source: 'frontend_fallback',
       })
     }
-  }, [elapsedSeconds, targetSeconds, finalizeState.kind, requestModal])
+  }, [elapsedSeconds, targetSeconds, finalizeState.kind, showWrapupBanner, requestModal])
 
   // Wave 2.3: persist finalizeState to sessionStorage so a browser refresh
   // during the modal is a non-event. The parent InterviewFlowWrapper checks
@@ -645,7 +650,7 @@ function InterviewRoomContent({ session, inviteToken, onInterviewEnd }: Intervie
           role="status"
           aria-live="polite"
         >
-          El entrevistador está preparando un resumen...
+          El entrevistador está cerrando la conversación...
         </div>
       )}
 
