@@ -177,6 +177,34 @@ function InterviewRoomContent({ session, inviteToken, onInterviewEnd }: Intervie
   // Agent audio track for volume metering
   const agentVolume = useTrackVolume(agentAudioTrack)
 
+  // Tier 2.2: track whether the agent has joined the room. If the Railway
+  // worker is cold-booting, the participant can be connected for many seconds
+  // before the agent participant dispatches — a blank room during that window
+  // reads as a broken app. Flip `agentJoined` true the first time we see an
+  // agent audio track, and only ever show the loading overlay while waiting.
+  const [agentJoined, setAgentJoined] = useState<boolean>(false)
+  const [waitingSecondsForAgent, setWaitingSecondsForAgent] = useState<number>(0)
+  useEffect(() => {
+    if (agentAudioTrack && !agentJoined) setAgentJoined(true)
+  }, [agentAudioTrack, agentJoined])
+  useEffect(() => {
+    if (agentJoined || connectionState !== ConnectionState.Connected) return
+    const started = Date.now()
+    const iv = setInterval(() => {
+      setWaitingSecondsForAgent(Math.floor((Date.now() - started) / 1000))
+    }, 1000)
+    return () => clearInterval(iv)
+  }, [agentJoined, connectionState])
+
+  // Show the overlay only after a short grace (so fast-join, warm-agent path
+  // doesn't flash it) and only while still in the idle phase of the interview.
+  const showAgentWaitingOverlay =
+    !agentJoined &&
+    connectionState === ConnectionState.Connected &&
+    waitingSecondsForAgent >= 3 &&
+    finalizeState.kind === 'idle' &&
+    !recoveryVariant
+
   // Map agent state to orb state
   const orbState = (() => {
     const s = agentState
@@ -681,6 +709,34 @@ function InterviewRoomContent({ session, inviteToken, onInterviewEnd }: Intervie
       {/* Wave 3.3: backgrounded overlay for mobile tab-switch / screen-lock */}
       {isBackgrounded && finalizeState.kind === 'idle' && !recoveryVariant && (
         <RecoveryCard variant="backgrounded" />
+      )}
+
+      {/* Tier 2.2: agent-warming-up overlay. Fires when we're connected to
+          the LiveKit room but the agent participant hasn't joined yet after
+          3 seconds — typically because the Railway worker is cold-booting.
+          Disappears the instant the agent's audio track appears. */}
+      {showAgentWaitingOverlay && (
+        <div
+          className="fixed inset-0 z-40 flex items-center justify-center bg-background/90 backdrop-blur-sm motion-safe:animate-in motion-safe:fade-in motion-safe:duration-300"
+          role="status"
+          aria-live="polite"
+        >
+          <div className="max-w-sm text-center px-6">
+            <div className="mx-auto mb-5 size-10 rounded-full border-2 border-muted-foreground/30 border-t-primary animate-spin" />
+            <h3 className="text-base font-semibold text-foreground mb-1">
+              Preparando tu entrevistador…
+            </h3>
+            <p className="text-sm text-muted-foreground leading-relaxed">
+              Esto suele tomar unos segundos. Si llevas más de un minuto aquí,
+              refresca la página.
+            </p>
+            {waitingSecondsForAgent >= 15 && (
+              <p className="mt-3 text-xs text-muted-foreground/80">
+                Tiempo de espera: {waitingSecondsForAgent}s
+              </p>
+            )}
+          </div>
+        </div>
       )}
 
       {/* Top region: Orb + Phase */}

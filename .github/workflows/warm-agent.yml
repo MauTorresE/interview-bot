@@ -1,0 +1,43 @@
+name: Warm voice agent (Railway)
+
+# Tier 2.2: pings the Python LiveKit agent's status endpoint on a schedule so
+# the Railway worker stays warm. A cold container can take 30–180s to initialize
+# (pydub/livekit/anthropic/deepgram/voxtral clients all load at boot), which
+# directly becomes the wait the user sees between "Start interview" and the
+# agent's first turn. Keeping the container warm collapses that to a few seconds.
+#
+# Required secret: AGENT_HEALTHZ_URL — the full URL of the agent's status
+# endpoint on Railway (e.g. https://entrevista-agent.railway.app/).
+# livekit-agents exposes this endpoint on the port passed to WorkerOptions
+# (we read PORT env var in entrevista_agent.py; Railway provides it).
+
+on:
+  schedule:
+    # Every 5 minutes. GitHub may delay short-interval crons by up to 15 min
+    # under load, but 5 is still the tightest practical setting.
+    - cron: "*/5 * * * *"
+  workflow_dispatch: {}
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Ping agent status endpoint
+        env:
+          AGENT_HEALTHZ_URL: ${{ secrets.AGENT_HEALTHZ_URL }}
+        run: |
+          if [ -z "$AGENT_HEALTHZ_URL" ]; then
+            echo "::warning::AGENT_HEALTHZ_URL secret not configured — skipping ping."
+            exit 0
+          fi
+          # --max-time 15: if Railway is cold-booting, a ping that takes 15s
+          # is still useful (it wakes the container). --fail flips non-2xx into
+          # a nonzero exit so we get a visible failure in the Actions tab.
+          # --silent --show-error keeps logs quiet on the happy path and loud
+          # on failure. Retry up to 3 times with 5s backoff to ride through
+          # transient Railway routing blips.
+          curl --silent --show-error --fail --max-time 15 \
+               --retry 3 --retry-delay 5 --retry-all-errors \
+               "$AGENT_HEALTHZ_URL" > /dev/null
+          echo "agent responded OK"
