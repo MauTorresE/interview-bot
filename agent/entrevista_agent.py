@@ -49,12 +49,13 @@ logger.setLevel(logging.INFO)
 # Anthropic prompt cache — the mechanism that made update_instructions() unreliable.
 _FORCED_CLOSING_INSTRUCTION = (
     "[SISTEMA DE TIEMPO] El tiempo de la entrevista esta agotado. "
-    "En tu proxima respuesta, da un resumen breve y personalizado de 2-3 "
-    "oraciones sobre lo que aprendiste de su operacion (menciona temas "
-    "concretos que discutieron), agradece al participante por su tiempo, "
-    "y llama INMEDIATAMENTE la funcion end_interview con ese mismo resumen "
-    "como argumento. NO hagas mas preguntas. NO continues explorando temas. "
-    "Esta es una instruccion del sistema, no del usuario."
+    "En tu proxima respuesta, cierra en EXACTAMENTE 2-3 oraciones: "
+    "(1) UN solo hallazgo clave de lo que escuchaste (no una lista), "
+    "(2) agradecimiento breve, "
+    "(3) mencion de que el equipo va a preparar la propuesta. "
+    "Despues llama INMEDIATAMENTE la funcion end_interview con ese mismo resumen. "
+    "NO reciteles verbatim los datos que te dieron. NO listes multiples temas. "
+    "NO hagas mas preguntas. Esta es una instruccion del sistema, no del usuario."
 )
 
 # Phase-1 closing: before summarizing, give the participant a final chance
@@ -74,21 +75,21 @@ _CLOSING_FINAL_CHANCE_INSTRUCTION = (
 # Used in Wave 2.1 — defined here so both instructions live together.
 _FORCED_CLOSING_INSTRUCTION_USER_REQUESTED = (
     "[SISTEMA] El participante ha solicitado cerrar la entrevista ahora mismo. "
-    "Esto es perfectamente normal. En tu proxima respuesta: "
-    "(1) Agradecele calidamente usando su nombre, "
-    "(2) Menciona una o dos cosas concretas que aprendiste sobre su operacion "
-    "    (procesos, herramientas, o fricciones especificas que mencionaron), "
-    "(3) Explica brevemente que con esto el equipo ya puede empezar a preparar una propuesta, "
-    "(4) Despidete con calidez. "
-    "(5) Llama INMEDIATAMENTE la funcion end_interview con ese resumen. "
-    "NO digas 'veo que tienes que irte' ni 'entiendo que no tengas tiempo' — "
-    "simplemente cierra con gracia. NO hagas mas preguntas."
+    "Esto es perfectamente normal. En tu proxima respuesta, cierra en EXACTAMENTE "
+    "2-3 oraciones: "
+    "(1) agradecele por su nombre con calidez, "
+    "(2) menciona UN solo hallazgo clave de lo que aprendiste (no listes varios), "
+    "(3) explica brevemente que el equipo va a preparar la propuesta. "
+    "Despues llama INMEDIATAMENTE la funcion end_interview con ese mismo resumen. "
+    "NO digas 'veo que tienes que irte' ni 'entiendo que no tengas tiempo'. "
+    "NO reciteles verbatim los datos que te dieron. NO hagas mas preguntas."
 )
 
-# Voice persona mapping (matches src/lib/constants/campaign.ts)
+# Voice persona mapping (matches src/lib/constants/campaign.ts).
+# Display name for voxtral-natalia is "Mauricio" — the ID is kept stable to
+# avoid a campaigns.voice_id migration; the cloned voice is Mauricio's own.
 VOXTRAL_VOICES = {
-    "voxtral-natalia": "0c1cb9a3-5b28-4918-8e5f-99a268c334e3",  # Cloned Mexican Spanish female (from prototype)
-    "voxtral-diego": "fr_marie_neutral",  # Default Voxtral voice (placeholder until male clone is created)
+    "voxtral-natalia": "0c1cb9a3-5b28-4918-8e5f-99a268c334e3",  # Mauricio (cloned Mexican Spanish)
 }
 ELEVENLABS_VOICES = {
     "elevenlabs-sofia": "pMsXgVXv3BLzUgSXRplE",  # Female Mexican accent
@@ -352,11 +353,14 @@ class EntrevistaAgent(Agent):
     ) -> str:
         """Termina la entrevista con un resumen personalizado.
 
-        El resumen DEBE incluir: (1) nombre del participante si esta disponible,
-        (2) dos observaciones especificas sobre su operacion con herramientas,
-        procesos o numeros concretos que mencionaron, (3) mencion breve del
-        proximo paso (el equipo preparara una propuesta), (4) cierre calido.
-        Minimo 3 oraciones, maximo 4. NO uses frases genericas vacias.
+        El resumen debe ser breve: EXACTAMENTE 2-3 oraciones que incluyan
+        (1) UN solo hallazgo clave de lo que aprendiste — no una lista de
+        temas, (2) agradecimiento breve, (3) mencion de que el equipo va a
+        preparar la propuesta.
+
+        NO recites verbatim los datos que el participante te dio (duraciones,
+        volumenes, nombres de procesos). NO listes multiples observaciones.
+        El objetivo es un cierre humano y calido, no un dump de informacion.
 
         IMPORTANTE: Esta funcion NO termina la llamada inmediatamente. En lugar
         de eso, presenta al usuario un modal para que el confirme el cierre.

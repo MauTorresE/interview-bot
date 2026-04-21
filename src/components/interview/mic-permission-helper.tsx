@@ -20,11 +20,15 @@ type Browser = 'chrome' | 'safari-ios' | 'safari-mac' | 'firefox' | 'edge' | 'ot
 function detectBrowser(): Browser {
   if (typeof navigator === 'undefined') return 'other'
   const ua = navigator.userAgent
-  if (/iPhone|iPad/.test(ua) && /Safari/.test(ua) && !/CriOS|FxiOS/.test(ua)) return 'safari-ios'
-  if (/Safari/.test(ua) && !/Chrome|Chromium/.test(ua)) return 'safari-mac'
+  // Check Chromium-family and Firefox first — their UAs contain "Safari" as a
+  // legacy substring, so Safari detection must come last to avoid false positives.
   if (/Edg\//.test(ua)) return 'edge'
+  if (/CriOS/.test(ua)) return 'chrome'             // Chrome on iOS
+  if (/FxiOS/.test(ua)) return 'firefox'            // Firefox on iOS
   if (/Firefox/.test(ua)) return 'firefox'
   if (/Chrome|Chromium/.test(ua)) return 'chrome'
+  if (/iPhone|iPad/.test(ua) && /Safari/.test(ua)) return 'safari-ios'
+  if (/Safari/.test(ua)) return 'safari-mac'
   return 'other'
 }
 

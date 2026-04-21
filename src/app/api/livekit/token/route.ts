@@ -77,7 +77,7 @@ export async function POST(req: NextRequest) {
     const duration = (campaign?.duration_target_minutes as number) ?? 15
     const voiceId = (campaign?.voice_id as string) ?? 'voxtral-natalia'
     const persona = VOICE_PERSONAS.find(p => p.id === voiceId)
-    const personaName = persona?.name ?? 'Natalia'
+    const personaName = persona?.name ?? 'Mauricio'
 
     const at = new AccessToken(
       process.env.LIVEKIT_API_KEY!,
@@ -111,7 +111,7 @@ export async function POST(req: NextRequest) {
   const duration = (campaign?.duration_target_minutes as number) ?? 15
   const voiceId = (campaign?.voice_id as string) ?? 'voxtral-natalia'
   const persona = VOICE_PERSONAS.find(p => p.id === voiceId)
-  const personaName = persona?.name ?? 'Natalia'
+  const personaName = persona?.name ?? 'Mauricio'
 
   // Step 4: Create interview row + LiveKit room + return token
   const { data: interview, error: insertError } = await admin

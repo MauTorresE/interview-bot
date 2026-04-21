@@ -80,9 +80,12 @@ class InterviewState:
         target_min = self.duration_target_seconds // 60
         remaining_min = max(0, target_min - elapsed_min)
 
+        # Phase coaching is injected separately via build_system_prompt()
+        # (PHASE_COACHING[phase]). The literal "Fase: Warmup/Conversation/Closing"
+        # label used to live here, but that leaked internal architecture labels
+        # into bot responses (user-reported "Brief-Entrevista"-style leaks).
         lines = [
             f"Llevas {elapsed_min} de {target_min} minutos.",
-            f"Fase: {self.phase.capitalize()}.",
             f"Tiempo restante: {remaining_min} minutos.",
             f"Temas documentados: {self.topics_count}.",
         ]
@@ -103,11 +106,11 @@ class InterviewState:
         # Time urgency (simplified — no extension flow in Tier 0)
         if self.elapsed_fraction >= 0.90:
             lines.append(
-                "URGENTE: El tiempo esta casi agotado. En tu proxima respuesta, da un "
-                "resumen breve y personalizado (2-3 oraciones) mencionando temas concretos "
-                "que el participante discutio, agradecele por su tiempo, y llama "
-                "INMEDIATAMENTE la funcion end_interview con ese resumen. NO hagas mas "
-                "preguntas. NO continues explorando temas."
+                "URGENTE: El tiempo esta casi agotado. En tu proxima respuesta, cierra "
+                "en EXACTAMENTE 2-3 oraciones: UN solo hallazgo clave (no una lista de "
+                "temas, no recites datos verbatim), agradecimiento breve, y mencion de "
+                "que el equipo preparara la propuesta. Despues llama INMEDIATAMENTE la "
+                "funcion end_interview con ese mismo resumen. NO hagas mas preguntas."
             )
         elif self.elapsed_fraction >= 0.80:
             lines.append(
