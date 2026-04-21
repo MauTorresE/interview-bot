@@ -29,6 +29,13 @@ import { RecoveryCard, type RecoveryVariant } from '@/components/interview/recov
 import { useInterviewPresence } from '@/hooks/use-interview-presence'
 import type { InterviewSession } from './interview-flow-wrapper'
 
+// Tier 2.2: thresholds for the agent-warming-up overlay. Exported constants
+// instead of inline magic numbers so they're easy to tune from one place
+// and obvious to readers what the timing story is.
+const AGENT_WAIT_GRACE_SECONDS = 3         // fast-join doesn't flash the overlay
+const AGENT_WAIT_COUNTER_AFTER = 15        // show elapsed-seconds to reassure user
+const AGENT_WAIT_ESCAPE_AFTER = 30         // offer a "reload page" button
+
 type InterviewRoomProps = {
   session: InterviewSession
   inviteToken: string
@@ -201,7 +208,7 @@ function InterviewRoomContent({ session, inviteToken, onInterviewEnd }: Intervie
   const showAgentWaitingOverlay =
     !agentJoined &&
     connectionState === ConnectionState.Connected &&
-    waitingSecondsForAgent >= 3 &&
+    waitingSecondsForAgent >= AGENT_WAIT_GRACE_SECONDS &&
     finalizeState.kind === 'idle' &&
     !recoveryVariant
 
@@ -713,8 +720,10 @@ function InterviewRoomContent({ session, inviteToken, onInterviewEnd }: Intervie
 
       {/* Tier 2.2: agent-warming-up overlay. Fires when we're connected to
           the LiveKit room but the agent participant hasn't joined yet after
-          3 seconds — typically because the Railway worker is cold-booting.
-          Disappears the instant the agent's audio track appears. */}
+          AGENT_WAIT_GRACE_SECONDS — typically because the Railway worker is
+          cold-booting. Disappears the instant the agent's audio track appears.
+          After AGENT_WAIT_ESCAPE_AFTER, offers a reload button so the user
+          isn't trapped if the agent genuinely never shows. */}
       {showAgentWaitingOverlay && (
         <div
           className="fixed inset-0 z-40 flex items-center justify-center bg-background/90 backdrop-blur-sm motion-safe:animate-in motion-safe:fade-in motion-safe:duration-300"
@@ -728,12 +737,22 @@ function InterviewRoomContent({ session, inviteToken, onInterviewEnd }: Intervie
             </h3>
             <p className="text-sm text-muted-foreground leading-relaxed">
               Esto suele tomar unos segundos. Si llevas más de un minuto aquí,
-              refresca la página.
+              recarga la página.
             </p>
-            {waitingSecondsForAgent >= 15 && (
+            {waitingSecondsForAgent >= AGENT_WAIT_COUNTER_AFTER && (
               <p className="mt-3 text-xs text-muted-foreground/80">
                 Tiempo de espera: {waitingSecondsForAgent}s
               </p>
+            )}
+            {waitingSecondsForAgent >= AGENT_WAIT_ESCAPE_AFTER && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="mt-4"
+                onClick={() => window.location.reload()}
+              >
+                Recargar página
+              </Button>
             )}
           </div>
         </div>

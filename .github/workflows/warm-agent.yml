@@ -6,10 +6,13 @@ name: Warm voice agent (Railway)
 # directly becomes the wait the user sees between "Start interview" and the
 # agent's first turn. Keeping the container warm collapses that to a few seconds.
 #
-# Required secret: AGENT_HEALTHZ_URL — the full URL of the agent's status
-# endpoint on Railway (e.g. https://entrevista-agent.railway.app/).
-# livekit-agents exposes this endpoint on the port passed to WorkerOptions
-# (we read PORT env var in entrevista_agent.py; Railway provides it).
+# Required secret: AGENT_HEALTHZ_URL — the full URL of the agent's health
+# endpoint on Railway. Must include the trailing `/` path because livekit-agents
+# 1.5 registers `GET /` as the health_check route (and `GET /worker` for
+# worker status). Example: https://entrevista-agent.railway.app/
+#
+# livekit-agents exposes the endpoint on the port passed to WorkerOptions.
+# entrevista_agent.py reads PORT env (Railway injects it) with "8081" fallback.
 
 on:
   schedule:
