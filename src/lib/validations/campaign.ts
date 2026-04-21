@@ -16,6 +16,10 @@ export const researchBriefSchema = z.object({
     trigger: z.string().min(1).max(500),
     exploration: z.string().min(1).max(500),
   })).max(10).default([]),
+  // Required topics: each must be covered (via note_theme with required_topic_index)
+  // before the agent can close the interview naturally. Short labels work best —
+  // the agent shows them verbatim in its per-turn context.
+  required_topics: z.array(z.string().min(1).max(100)).max(10).default([]),
   context_background: z.string().max(5000),
   tone_approach: z.string().max(3000),
 })

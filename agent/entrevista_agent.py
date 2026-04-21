@@ -276,8 +276,17 @@ class EntrevistaAgent(Agent):
         theme: str,
         description: str,
         supporting_quote: str,
+        required_topic_index: int | None = None,
     ) -> str:
-        """Registra un tema o hallazgo importante que el participante menciono. Llama esta funcion cuando identifiques un tema relevante para la investigacion."""
+        """Registra un tema o hallazgo importante que el participante menciono.
+
+        Llama esta funcion cuando identifiques un tema relevante para la investigacion.
+
+        Si el tema corresponde a uno de los "Temas obligatorios" listados en el
+        prompt (ver seccion "Temas obligatorios"), pasa `required_topic_index`
+        con el numero (1-based) correspondiente — eso lo marcara como cubierto
+        para que puedas cerrar la entrevista al final.
+        """
         data = {
             "theme": theme,
             "description": description,
@@ -290,8 +299,26 @@ class EntrevistaAgent(Agent):
             )
         except Exception as e:
             logger.error(f"Failed to save theme insight: {e}")
+
+        coverage_msg = ""
+        if required_topic_index is not None:
+            # Prompt uses 1-based indices; state stores 0-based
+            zero_based = required_topic_index - 1
+            if self._state.mark_required_topic_covered(zero_based):
+                uncovered = self._state.uncovered_required_topics
+                if uncovered:
+                    remaining = ", ".join(f"#{i + 1} {t}" for i, t in uncovered)
+                    coverage_msg = f" Tema obligatorio #{required_topic_index} marcado. Pendientes: {remaining}."
+                else:
+                    coverage_msg = f" Tema obligatorio #{required_topic_index} marcado. Todos los obligatorios cubiertos."
+            else:
+                coverage_msg = f" (Aviso: required_topic_index={required_topic_index} esta fuera de rango — ignora el marcado.)"
+
         self._update_instructions()
-        return f"Tema '{theme}' registrado. Total temas: {self._state.topics_count}."
+        return (
+            f"Tema '{theme}' registrado. Total temas: {self._state.topics_count}."
+            + coverage_msg
+        )
 
     @function_tool()
     async def note_quote(
@@ -400,6 +427,31 @@ class EntrevistaAgent(Agent):
                 f"profundiza en el tema actual con cuantificacion y ejemplos concretos, "
                 f"o transiciona a una nueva area de descubrimiento. NO intentes cerrar "
                 f"de nuevo hasta que hayas cubierto mas material."
+            )
+
+        # Tier 2.1: required-topic coverage gate.
+        #
+        # Block closing if required_topics are declared and any remain uncovered,
+        # UNLESS we're past the 85% time mark (time budget ultimately wins — the
+        # interview must end even if coverage is incomplete) OR the user
+        # explicitly asked to end early OR enforcement already fired.
+        uncovered = self._state.uncovered_required_topics
+        if (
+            uncovered
+            and frac < 0.85
+            and not self._state._user_requested_end
+            and not self._state._closing_forced
+        ):
+            pending = ", ".join(f"#{i + 1} {t}" for i, t in uncovered)
+            logger.info(
+                f"Interview {self._interview_id}: end_interview REJECTED — "
+                f"required topics pending ({len(uncovered)} of {len(self._state.required_topics)}): {pending}"
+            )
+            return (
+                f"ERROR: Aun faltan {len(uncovered)} temas obligatorios por cubrir: {pending}. "
+                f"Debes explorar estos temas antes de cerrar. Haz una pregunta concreta "
+                f"sobre el primer tema pendiente — no intentes cerrar la entrevista de nuevo "
+                f"hasta que llames note_theme con el required_topic_index correspondiente."
             )
 
         logger.info(
@@ -812,8 +864,13 @@ async def entrypoint(ctx: JobContext):
     # Load campaign config from Supabase (D-05)
     config = await load_interview_config(interview_id)
 
-    # Build system prompt (D-06)
-    state = InterviewState(config.duration_target_seconds)
+    # Build system prompt (D-06). Tier 2.1: pass required_topics into state so
+    # the coverage gate in end_interview and the time_context reminder both see
+    # the same authoritative list pulled from the research brief.
+    state = InterviewState(
+        duration_target_seconds=config.duration_target_seconds,
+        required_topics=config.research_brief.get("required_topics") or [],
+    )
     system_prompt = build_system_prompt(
         brief=config.research_brief,
         style=config.interviewer_style,
