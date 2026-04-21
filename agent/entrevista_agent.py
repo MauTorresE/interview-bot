@@ -267,9 +267,6 @@ class EntrevistaAgent(Agent):
             else:
                 await self._do_force_summary_and_end("final_chance_user_responded")
 
-    # (Bot transcript saving is handled by the @session.on("conversation_item_added")
-    # handler at the bottom of entrypoint() — this orphan method was never hooked up.)
-
     # ── Function tools (D-08: generic for any domain) ──────────────
 
     @function_tool()
@@ -540,41 +537,49 @@ class EntrevistaAgent(Agent):
             logger.error(f"phase-1 generate_reply failed: {e}", exc_info=True)
 
         # Safety-net timer: if user never responds, force phase-2 after 60s.
-        # Extends up to 3x (90s / 60s / 60s) if user is actively speaking,
-        # giving them up to ~2.5min to share their last thoughts before we
-        # fall back to the summary.
+        # Extends up to 3 times (60s each) if the user is actively speaking
+        # (silence <3s) at the tick — giving them up to 4 minutes total to
+        # share their last thoughts before we fall back to the summary.
         async def _final_chance_timeout(extension: int = 0):
-            wait = 60
-            await asyncio.sleep(wait)
-            if (
-                self._state._end_tool_called
-                or self._state.ended
-                or self._state._closing_forced
-            ):
-                return  # already closed via another path
+            try:
+                wait = 60
+                await asyncio.sleep(wait)
+                if (
+                    self._state._end_tool_called
+                    or self._state.ended
+                    or self._state._closing_forced
+                ):
+                    return  # already closed via another path
 
-            now = time.time()
-            last_turn = self._state.last_user_turn_at or 0
-            silence_s = now - last_turn if last_turn else 999
+                now = time.time()
+                last_turn = self._state.last_user_turn_at or 0
+                silence_s = now - last_turn if last_turn else 999
 
-            # Don't cut user off mid-speech
-            if silence_s < 3:
-                if extension < 3:
-                    logger.info(
-                        f"Interview {self._interview_id}: phase-1 timeout deferred "
-                        f"(user speaking, silence={silence_s:.1f}s, ext={extension+1}/3)"
+                # Don't cut user off mid-speech
+                if silence_s < 3:
+                    if extension < 3:
+                        logger.info(
+                            f"Interview {self._interview_id}: phase-1 timeout deferred "
+                            f"(user speaking, silence={silence_s:.1f}s, ext={extension+1}/3)"
+                        )
+                        asyncio.create_task(_final_chance_timeout(extension + 1))
+                        return
+                    logger.warning(
+                        f"Interview {self._interview_id}: phase-1 max extensions reached, forcing close"
                     )
-                    asyncio.create_task(_final_chance_timeout(extension + 1))
-                    return
-                logger.warning(
-                    f"Interview {self._interview_id}: phase-1 max extensions reached, forcing close"
-                )
 
-            logger.info(
-                f"Interview {self._interview_id}: phase-1 timeout, firing phase-2 "
-                f"(silence={silence_s:.1f}s, ext={extension})"
-            )
-            await self._do_force_summary_and_end("final_chance_timeout")
+                logger.info(
+                    f"Interview {self._interview_id}: phase-1 timeout, firing phase-2 "
+                    f"(silence={silence_s:.1f}s, ext={extension})"
+                )
+                await self._do_force_summary_and_end("final_chance_timeout")
+            except Exception:
+                # Fire-and-forget task — surface exceptions explicitly so they
+                # don't get silently swallowed when the task is GC'd.
+                logger.exception(
+                    f"Interview {self._interview_id}: phase-1 timeout task crashed "
+                    f"(ext={extension})"
+                )
 
         asyncio.create_task(_final_chance_timeout())
 
@@ -617,29 +622,15 @@ class EntrevistaAgent(Agent):
         )
         self._update_instructions()
 
-        # Interrupt any in-flight generation — but only when safe. If phase-1's
-        # TTS might still be playing (phase-1 was recent and no user turn has
-        # completed after it), skip the interrupt so we don't chop off the
-        # "anything else?" question mid-word.
-        should_interrupt = True
-        if (
-            self._state._closing_final_chance_given
-            and reason == "final_chance_timeout"
-        ):
-            # Timeout path with no user response — phase-1 TTS finished long ago, safe to interrupt
-            should_interrupt = True
-        elif reason == "final_chance_user_responded":
-            # User completed a turn → phase-1 TTS definitely finished. Safe.
-            should_interrupt = True
-        elif reason == "user_requested":
-            # User clicked finalize — safe to interrupt
-            should_interrupt = True
-
-        if should_interrupt:
-            try:
-                self.session.interrupt()
-            except Exception as e:
-                logger.debug(f"session.interrupt() in phase-2: {e}")
+        # Interrupt any in-flight generation. All phase-2 entry paths are safe:
+        #   - final_chance_timeout: user stayed silent 60s+, phase-1 TTS long done
+        #   - final_chance_user_responded: user completed a turn, TTS done
+        #   - user_requested: explicit user action
+        #   - watchdog: last-resort safety net, interrupting is required
+        try:
+            self.session.interrupt()
+        except Exception as e:
+            logger.debug(f"session.interrupt() in phase-2: {e}")
 
         try:
             self.session.generate_reply(instructions=instruction)
