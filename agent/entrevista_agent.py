@@ -1176,8 +1176,21 @@ async def entrypoint(ctx: JobContext):
 
 
 if __name__ == "__main__":
+    # Tier 2.2 (cold-start mitigation): bind the worker's status/health HTTP
+    # endpoint to the PORT env var that Railway injects. livekit-agents 1.5
+    # serves GET / (health_check) and GET /worker (status) on this port; an
+    # external cron can ping GET / every few minutes to keep the Python
+    # worker warm and avoid the ~30-180s cold-start that otherwise hits the
+    # first interview of the day.
+    #
+    # `or "8081"` guards against PORT being set-but-empty (e.g. `PORT=""`),
+    # which would otherwise ValueError on int(""). Both unset and empty fall
+    # back to livekit-agents' default prod port.
+    _status_port = int(os.environ.get("PORT") or "8081")
     cli.run_app(
         WorkerOptions(
             entrypoint_fnc=entrypoint,
+            host="0.0.0.0",
+            port=_status_port,
         )
     )
