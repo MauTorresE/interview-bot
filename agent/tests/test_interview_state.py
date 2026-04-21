@@ -147,3 +147,83 @@ class TestInterviewState:
         assert state._user_requested_end == False
         state.mark_user_requested_end()
         assert state._user_requested_end == True
+
+    # ── Tier 2.1: required-topic coverage ──────────────────────
+
+    def test_required_topics_default_empty(self):
+        state = InterviewState(900)
+        assert state.required_topics == []
+        assert state.covered_topic_indices == set()
+        assert state.uncovered_required_topics == []
+
+    def test_required_topics_init(self):
+        topics = ["temporalidad", "volumen mensual", "herramientas"]
+        state = InterviewState(900, required_topics=topics)
+        assert state.required_topics == topics
+        # All three show as uncovered initially, preserving order and index
+        uncovered = state.uncovered_required_topics
+        assert uncovered == [(0, "temporalidad"), (1, "volumen mensual"), (2, "herramientas")]
+
+    def test_required_topics_input_is_copied(self):
+        # Guards against campaigns mutating each other if an InterviewState instance
+        # is ever constructed with the same list reference.
+        topics = ["a", "b"]
+        state = InterviewState(900, required_topics=topics)
+        topics.append("c")
+        assert state.required_topics == ["a", "b"]
+
+    def test_mark_required_topic_covered_happy_path(self):
+        state = InterviewState(900, required_topics=["a", "b", "c"])
+        assert state.mark_required_topic_covered(1) is True
+        assert state.covered_topic_indices == {1}
+        assert state.uncovered_required_topics == [(0, "a"), (2, "c")]
+
+    def test_mark_required_topic_covered_out_of_range(self):
+        state = InterviewState(900, required_topics=["a", "b"])
+        assert state.mark_required_topic_covered(5) is False
+        assert state.mark_required_topic_covered(-1) is False
+        assert state.covered_topic_indices == set()
+
+    def test_mark_required_topic_covered_idempotent(self):
+        state = InterviewState(900, required_topics=["a"])
+        assert state.mark_required_topic_covered(0) is True
+        assert state.mark_required_topic_covered(0) is True
+        assert state.covered_topic_indices == {0}
+
+    def test_uncovered_empty_when_all_covered(self):
+        state = InterviewState(900, required_topics=["a", "b"])
+        state.mark_required_topic_covered(0)
+        state.mark_required_topic_covered(1)
+        assert state.uncovered_required_topics == []
+
+    def test_time_context_shows_pending_in_conversation(self):
+        state = InterviewState(900, required_topics=["temporalidad", "volumen"])
+        state.phase = "conversation"
+        ctx = state.time_context
+        assert "TEMAS OBLIGATORIOS PENDIENTES" in ctx
+        assert "#1 temporalidad" in ctx
+        assert "#2 volumen" in ctx
+
+    def test_time_context_shows_all_covered_when_done(self):
+        state = InterviewState(900, required_topics=["a"])
+        state.phase = "conversation"
+        state.mark_required_topic_covered(0)
+        ctx = state.time_context
+        assert "todos cubiertos" in ctx
+
+    def test_time_context_no_section_when_no_required_topics(self):
+        state = InterviewState(900)
+        state.phase = "conversation"
+        ctx = state.time_context
+        assert "OBLIGATORIOS" not in ctx
+        assert "todos cubiertos" not in ctx
+
+    def test_time_context_suppresses_pending_in_closing_phase(self):
+        # Closing phase should not surface pending topics — the 2-3 sentence
+        # closing instructions would otherwise conflict with a "cover these first"
+        # reminder and the LLM would try to satisfy both.
+        state = InterviewState(900, required_topics=["a", "b"])
+        state.phase = "closing"
+        ctx = state.time_context
+        assert "OBLIGATORIOS" not in ctx
+        assert "todos cubiertos" not in ctx

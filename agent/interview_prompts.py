@@ -32,6 +32,9 @@ tenga toda la informacion que necesita. Necesitas documentar:
 ## Datos criticos que necesitas obtener
 {data_points}
 
+## Temas obligatorios (debes cubrir TODOS antes de cerrar)
+{required_topics_section}
+
 ## Contexto del cliente/estudio
 {study_context}
 
@@ -171,6 +174,26 @@ PHASE_COACHING: dict[str, str] = {
 }
 
 
+def _format_required_topics(topics: list[str]) -> str:
+    """Format required_topics as a numbered checklist for the system prompt.
+
+    If no topics are declared, emit a benign placeholder — the coverage gate
+    is a no-op in that case anyway.
+    """
+    if not topics:
+        return (
+            "(Ninguno definido — no hay temas obligatorios para esta campana. "
+            "Explora segun los objetivos generales arriba.)"
+        )
+    lines = [f"{i + 1}. {t}" for i, t in enumerate(topics)]
+    lines.append(
+        "Cuando cubras uno de estos temas, llama la funcion note_theme "
+        "incluyendo el argumento `required_topic_index` (1-based, igual al numero "
+        "que aparece arriba). No puedes cerrar la entrevista hasta que todos esten marcados."
+    )
+    return "\n".join(lines)
+
+
 def build_system_prompt(
     brief: dict,
     style: str,
@@ -182,7 +205,7 @@ def build_system_prompt(
     """Build the full system prompt from research brief, style, state, and phase.
 
     Args:
-        brief: Dict with keys: goals, data_points, context, tone
+        brief: Dict with keys: goals, data_points, context, tone, required_topics
         style: Interviewer style ID (professional, casual, empathetic, direct)
         duration: Duration target in minutes
         state_context: Current interview state string from InterviewState.time_context
@@ -194,12 +217,14 @@ def build_system_prompt(
     """
     style_text = STYLE_INSTRUCTIONS.get(style, STYLE_INSTRUCTIONS["professional"])
     coaching = PHASE_COACHING.get(phase, PHASE_COACHING["conversation"])
+    required_topics = brief.get("required_topics") or []
 
     return SYSTEM_PROMPT_TEMPLATE.format(
         persona_name=persona_name,
         style_instructions=style_text,
         research_goals=brief.get("goals", "Entender la operacion actual del negocio para elaborar una propuesta personalizada."),
         data_points=brief.get("data_points", "Procesos actuales, herramientas, fricciones, volumenes, costos."),
+        required_topics_section=_format_required_topics(required_topics),
         study_context=brief.get("context", "Llamada de descubrimiento para propuesta tecnologica."),
         tone_instructions=brief.get("tone", "Profesional, cercano y orientado a soluciones."),
         duration_target=duration,

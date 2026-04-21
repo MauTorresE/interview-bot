@@ -37,6 +37,7 @@ export function BriefTab({ campaignId, brief }: BriefTabProps) {
       research_goals: '',
       critical_data_points: '',
       critical_paths: [],
+      required_topics: [],
       context_background: '',
       tone_approach: '',
     },
@@ -45,6 +46,21 @@ export function BriefTab({ campaignId, brief }: BriefTabProps) {
   const { fields, append, remove } = useFieldArray({
     control,
     name: 'critical_paths',
+  })
+
+  // required_topics is a flat string[]. react-hook-form's useFieldArray
+  // works with primitives but the `fields` entries carry an auto-generated
+  // `id`; register each input as `required_topics.${index}` to bind to the
+  // underlying string. The typing helpers complain about string[] under
+  // useFieldArray's generic constraints, so we cast the name.
+  const {
+    fields: requiredTopicFields,
+    append: appendRequiredTopic,
+    remove: removeRequiredTopic,
+  } = useFieldArray({
+    control,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    name: 'required_topics' as any,
   })
 
   const watchedValues = watch()
@@ -76,7 +92,8 @@ export function BriefTab({ campaignId, brief }: BriefTabProps) {
     !watchedValues.critical_data_points &&
     !watchedValues.context_background &&
     !watchedValues.tone_approach &&
-    (!watchedValues.critical_paths || watchedValues.critical_paths.length === 0)
+    (!watchedValues.critical_paths || watchedValues.critical_paths.length === 0) &&
+    (!watchedValues.required_topics || watchedValues.required_topics.length === 0)
 
   if (isEmpty) {
     return (
@@ -223,6 +240,61 @@ export function BriefTab({ campaignId, brief }: BriefTabProps) {
                   </Button>
                 )}
               </div>
+            </CardContent>
+          </Card>
+
+          {/* Section 2b: Temas obligatorios (coverage gate) */}
+          <Card>
+            <CardContent className="p-6">
+              <Label className="text-sm font-semibold">
+                Temas obligatorios
+              </Label>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Temas que el AI debe cubrir antes de cerrar la entrevista. Ej:
+                &quot;temporalidad / cadencia&quot;, &quot;volumen mensual&quot;,
+                &quot;herramientas actuales&quot;.
+              </p>
+
+              <div className="mt-3 space-y-2">
+                {requiredTopicFields.map((field, index) => (
+                  <div
+                    key={field.id}
+                    className="flex items-center gap-2 animate-in fade-in-0 slide-in-from-top-1 duration-200"
+                  >
+                    <span className="text-sm text-muted-foreground shrink-0 w-5 text-right">
+                      {index + 1}.
+                    </span>
+                    <Input
+                      className="flex-1"
+                      placeholder="tema que debe cubrirse"
+                      {...register(`required_topics.${index}`)}
+                    />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="shrink-0"
+                      onClick={() => removeRequiredTopic(index)}
+                    >
+                      <X className="size-4" />
+                    </Button>
+                  </div>
+                ))}
+              </div>
+
+              {requiredTopicFields.length < 10 && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="mt-3"
+                  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                  onClick={() => appendRequiredTopic('' as any)}
+                >
+                  <Plus className="mr-1 size-4" />
+                  Agregar tema
+                </Button>
+              )}
             </CardContent>
           </Card>
 

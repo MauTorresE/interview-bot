@@ -126,11 +126,20 @@ async def load_interview_config(interview_id: str) -> InterviewConfig:
             if brief_result.data and brief_result.data.get("brief_data"):
                 bd = brief_result.data["brief_data"]
                 # Support both key formats: short (goals) and long (research_goals)
+                rt = bd.get("required_topics") or []
+                # Defensive: only accept actual strings (reject dicts/lists/numbers
+                # that would have stringified to junk like "{}" or "[1, 2]"), then
+                # trim and cap at 10 to mirror the Zod schema bounds on the UI side.
+                if isinstance(rt, list):
+                    rt = [t.strip() for t in rt if isinstance(t, str) and t.strip()][:10]
+                else:
+                    rt = []
                 brief_data = {
                     "goals": bd.get("research_goals") or bd.get("goals", brief_data["goals"]),
                     "data_points": bd.get("critical_data_points") or bd.get("data_points", brief_data["data_points"]),
                     "context": bd.get("context_background") or bd.get("context", brief_data["context"]),
                     "tone": bd.get("tone_approach") or bd.get("tone", brief_data["tone"]),
+                    "required_topics": rt,
                 }
         except Exception as e:
             logger.warning(f"Failed to load research brief for campaign {campaign_id}: {e}")

@@ -22,12 +22,19 @@ class InterviewState:
         self,
         duration_target_seconds: int = 900,
         idle_threshold_seconds: int = 180,
+        required_topics: Optional[list[str]] = None,
     ):
         self.phase: str = "warmup"
         self.started_at: float = time.time()
         self.duration_target_seconds: int = duration_target_seconds
         self.topics_count: int = 0
         self.ended: bool = False
+
+        # Required-topics coverage (Tier 2.1): the agent cannot close naturally
+        # until every topic here has been marked covered via note_theme(
+        # required_topic_index=i). Empty list means no coverage requirement.
+        self.required_topics: list[str] = list(required_topics or [])
+        self.covered_topic_indices: set[int] = set()
 
         # Tier progression idempotency flags
         self._nudged: bool = False          # 80% soft nudge fired
@@ -89,6 +96,24 @@ class InterviewState:
             f"Tiempo restante: {remaining_min} minutos.",
             f"Temas documentados: {self.topics_count}.",
         ]
+
+        # Required-topic coverage reminder — prominent during warmup + conversation
+        # so the LLM sees which mandatory topics still need to be probed.
+        # Suppressed during the closing phase because at that point the closing
+        # instructions already enforce "ONE key finding, 2-3 sentences" — listing
+        # pending topics here would push the model toward dumping them into the
+        # summary (the exact anti-pattern Tier 1 fought). Time budget wins.
+        if self.phase != "closing":
+            uncovered = self.uncovered_required_topics
+            if uncovered:
+                pending = "; ".join(f"#{i + 1} {t}" for i, t in uncovered)
+                lines.append(
+                    f"TEMAS OBLIGATORIOS PENDIENTES (debes cubrirlos antes de cerrar): {pending}."
+                )
+            elif self.required_topics:
+                lines.append(
+                    "Temas obligatorios: todos cubiertos. Puedes cerrar cuando el tiempo lo indique."
+                )
 
         # Topic pacing guidance
         ideal_topics = max(2, target_min // 5)  # ~1 topic per 5 min
@@ -189,3 +214,25 @@ class InterviewState:
     def touch_user_turn(self, now: Optional[float] = None) -> None:
         """Update last_user_turn_at to record a user turn for idle detection."""
         self.last_user_turn_at = now if now is not None else time.time()
+
+    # ── Required-topic coverage (Tier 2.1) ──────────────────────────
+
+    @property
+    def uncovered_required_topics(self) -> list[tuple[int, str]]:
+        """Return (index, label) for every required topic not yet covered.
+
+        Index is zero-based (matches self.required_topics). Display adds 1 when
+        shown to the LLM so labels read as #1/#2/... rather than #0/#1.
+        """
+        return [
+            (i, t)
+            for i, t in enumerate(self.required_topics)
+            if i not in self.covered_topic_indices
+        ]
+
+    def mark_required_topic_covered(self, index: int) -> bool:
+        """Mark a required topic as covered by its index. Returns True on success."""
+        if 0 <= index < len(self.required_topics):
+            self.covered_topic_indices.add(index)
+            return True
+        return False
